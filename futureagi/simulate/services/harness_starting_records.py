@@ -64,13 +64,18 @@ class ReworkRequest(TypedDict):
     """The latest request to the builder to start a scenario from another record, as its turn left it."""
 
     id: str
-    state: Literal["pending", "proven", "refused"]
+    state: Literal["pending", "waiting", "proven", "refused"]
     table: str
     key_field: str
     key: str
     # Why it was refused, in words to show; null otherwise.
     reason: str | None
     requested_at: str
+    # The builder chat's message asking the person to confirm the change, while `waiting`; null otherwise.
+    confirm_message_id: str | None
+    # On a refusal the builder explained: its reply as written (Markdown), and that chat message's id.
+    builder_reply: str | None
+    reply_message_id: str | None
 
 
 class RowsUnavailable(TypedDict):
@@ -500,6 +505,20 @@ def seeded_row(
         return held.lookup(key_field, key) if held is not None else None
 
     return _with_tables(files.environment, find)
+
+
+def archive_scenario_files(archive: bytes, scenario_key: str) -> ScenarioFiles | None:
+    """The scenario as a builder's save holds it, with that save's world; None when the save has no such scenario."""
+    from simulate.services.harness_versioning import archives
+
+    split = archives.split_authoring(archives.read_archive(archive))
+    try:
+        document = _scenario(suite_documents(split.suite), scenario_key)
+    except HostedHarnessError:
+        return None
+    return ScenarioFiles(
+        document=document, suite=split.suite, environment=split.environment
+    )
 
 
 def scenario_files(job: HostedHarnessJob, scenario_key: str) -> ScenarioFiles:
