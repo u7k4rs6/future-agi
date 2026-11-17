@@ -17124,6 +17124,16 @@ export const HarnessRunSummaryApiOutcomeStatus = {
 } as const;
 
 export interface HarnessRunSummaryApi {
+  /** Comparable trials that passed. */
+  trials_passed: number;
+  /** Comparable trials that passed or failed: the trial pass rate's base. */
+  trials_evaluated: number;
+  /** Comparable trials that errored or were inconclusive, counted apart from the base. */
+  trials_inconclusive: number;
+  /** Trials left out because they did not start from the seeded records. */
+  trials_excluded_not_comparable: number;
+  /** Trials passed over trials evaluated, as a percent; null when none was evaluated. */
+  trial_pass_rate: number;
   kind: HarnessRunSummaryApiKind;
   test_execution_id: string;
   run_test_id: string;
@@ -20301,6 +20311,16 @@ export interface HarnessActorActivationApi {
   fallback_arguments?: HarnessActorActivationApiFallbackArguments;
 }
 
+/**
+ * Scenarios that bring the actor in by their own trigger, with when it comes in there.
+ */
+export interface HarnessActorArrivalOverrideApi {
+  /** @minLength 1 */
+  scenario: string;
+  /** @minLength 1 */
+  when_label: string;
+}
+
 export type HarnessActorProvenanceApiFields = { [key: string]: string };
 
 export interface HarnessActorProvenanceApi {
@@ -20379,6 +20399,8 @@ export interface HarnessActorApi {
   max_lines: number;
   /** Scenarios that include the actor. */
   scenarios: number;
+  /** Scenarios that bring the actor in by their own trigger, with when it comes in there. */
+  arrival_overrides: HarnessActorArrivalOverrideApi[];
   provenance: HarnessActorProvenanceApi;
   removable: boolean;
   removal_blocked_by: string[];
@@ -20540,6 +20562,115 @@ export const HarnessActorValidateApiOp = {
   delete: "delete",
 } as const;
 
+export interface HarnessActorRecordSourceCheckApi {
+  store: string;
+  /** @minLength 1 */
+  collection: string;
+}
+
+export interface HarnessActorResponseTimingChangeCheckApi {
+  /** @minLength 1 */
+  kind: string;
+  seconds?: number;
+}
+
+export type HarnessActorTriggerCheckApiWhere = { [key: string]: string };
+
+export interface HarnessActorTriggerCheckApi {
+  /** @minLength 1 */
+  kind?: string;
+  seconds?: number;
+  tool?: string;
+  on_call?: number;
+  p?: number;
+  turn?: number;
+  words?: string[];
+  collection?: string;
+  where?: HarnessActorTriggerCheckApiWhere;
+}
+
+export type HarnessActorChangesCheckApiFallbackArguments = {
+  [key: string]: unknown;
+};
+
+export interface HarnessActorChangesCheckApi {
+  name?: string;
+  role?: string;
+  /** @minLength 1 */
+  side?: string;
+  channel?: string;
+  gender?: string;
+  age_group?: string;
+  accent?: string;
+  loudness_ratio?: number;
+  /** @minLength 1 */
+  kind?: string;
+  parent?: string;
+  goal?: string;
+  may_agree?: string[];
+  private?: string[];
+  escalate_when?: string[];
+  stop_when?: string[];
+  facts?: string[];
+  files?: string[];
+  records?: HarnessActorRecordSourceCheckApi[];
+  style?: string;
+  response_timing?: HarnessActorResponseTimingChangeCheckApi;
+  permitted_actions?: string[];
+  /** @minLength 1 */
+  play?: string;
+  trigger?: HarnessActorTriggerCheckApi;
+  timeout_seconds?: number;
+  /** @minLength 1 */
+  fallback?: string;
+  fallback_arguments?: HarnessActorChangesCheckApiFallbackArguments;
+  model?: string;
+  max_turns?: number;
+  max_lines?: number;
+}
+
+export interface HarnessActorValidateApi {
+  op: HarnessActorValidateApiOp;
+  /**
+   * @minLength 1
+   * @maxLength 64
+   */
+  actor_id?: string;
+  changes?: HarnessActorChangesCheckApi;
+  /** @minLength 1 */
+  id?: string;
+  /** @maxItems 100 */
+  share_actions?: string[];
+}
+
+export interface HarnessActorProblemApi {
+  /** @minLength 1 */
+  field: string;
+  /** @minLength 1 */
+  message: string;
+}
+
+export interface HarnessActorConflictApi {
+  /** @minLength 1 */
+  actor: string;
+  /** @minLength 1 */
+  action: string;
+  /** @minLength 1 */
+  holder: string;
+  /** @minLength 1 */
+  holder_name: string;
+}
+
+export interface HarnessActorValidationApi {
+  problems: HarnessActorProblemApi[];
+  conflicts: HarnessActorConflictApi[];
+  /** @minLength 1 */
+  suggested_id: string;
+  over_by: number;
+}
+
+export type HarnessActorWriteApiActor = { [key: string]: unknown };
+
 export type HarnessActorChangesApiSide =
   (typeof HarnessActorChangesApiSide)[keyof typeof HarnessActorChangesApiSide];
 
@@ -20627,48 +20758,6 @@ export interface HarnessActorChangesApi {
   /** @minimum 1 */
   max_lines?: number;
 }
-
-export interface HarnessActorValidateApi {
-  op: HarnessActorValidateApiOp;
-  /**
-   * @minLength 1
-   * @maxLength 64
-   */
-  actor_id?: string;
-  changes?: HarnessActorChangesApi;
-  /** @minLength 1 */
-  id?: string;
-  /** @maxItems 100 */
-  share_actions?: string[];
-}
-
-export interface HarnessActorProblemApi {
-  /** @minLength 1 */
-  field: string;
-  /** @minLength 1 */
-  message: string;
-}
-
-export interface HarnessActorConflictApi {
-  /** @minLength 1 */
-  actor: string;
-  /** @minLength 1 */
-  action: string;
-  /** @minLength 1 */
-  holder: string;
-  /** @minLength 1 */
-  holder_name: string;
-}
-
-export interface HarnessActorValidationApi {
-  problems: HarnessActorProblemApi[];
-  conflicts: HarnessActorConflictApi[];
-  /** @minLength 1 */
-  suggested_id: string;
-  over_by: number;
-}
-
-export type HarnessActorWriteApiActor = { [key: string]: unknown };
 
 export interface HarnessActorWriteApi {
   actor?: HarnessActorWriteApiActor;
@@ -22685,8 +22774,6 @@ export interface HarnessRunCreateApi {
   /**
    * The same seed draws the same personas and variations again; absent keeps the environment's. A whole number from 0 to 2^63 - 1, as decimal text.
    * @minLength 1
-   * @maxLength 19
-   * @pattern ^[0-9]+$
    */
   seed?: string;
   agent_version_id?: string | null;
@@ -22803,6 +22890,11 @@ export interface HarnessSeededRowChoiceApi {
    * @minLength 1
    */
   summary: string;
+  /**
+   * Another scenario of the suite that already starts from this row; null when none does.
+   * @minLength 1
+   */
+  note: string;
 }
 
 /**
@@ -22924,6 +23016,13 @@ export interface HarnessStartingRecordsApi {
   setup_note: string;
   rows_unavailable: HarnessRowsUnavailableApi;
   rework: HarnessStartingRecordReworkApi;
+  /** Whether another record can be asked for now. */
+  can_rework: boolean;
+  /**
+   * Why another record can't be asked for now; null when it can.
+   * @minLength 1
+   */
+  rework_blocked_reason: string;
 }
 
 export interface HarnessStartingRecordReworkWriteApi {
@@ -27063,6 +27162,16 @@ export const TestExecutionItemResponseApiOutcomeStatus = {
 } as const;
 
 export interface TestExecutionItemResponseApi {
+  /** Comparable trials that passed. */
+  trials_passed: number;
+  /** Comparable trials that passed or failed: the trial pass rate's base. */
+  trials_evaluated: number;
+  /** Comparable trials that errored or were inconclusive, counted apart from the base. */
+  trials_inconclusive: number;
+  /** Trials left out because they did not start from the seeded records. */
+  trials_excluded_not_comparable: number;
+  /** Trials passed over trials evaluated, as a percent; null when none was evaluated. */
+  trial_pass_rate: number;
   /** @minLength 1 */
   readonly id?: string;
   /** @minLength 1 */
@@ -28437,13 +28546,14 @@ export interface SimulateRunV3FunctionCallApi {
 }
 
 /**
- * How far they got in the call; absent on a call stored without a summary.
+ * How far they got in the call: delivered (spoke), acted (took part through the world, no line), dropped (due, but neither spoke nor acted), not_triggered, not_drawn; absent on a call stored without a summary.
  */
 export type CallCallActorApiDelivery =
   (typeof CallCallActorApiDelivery)[keyof typeof CallCallActorApiDelivery];
 
 export const CallCallActorApiDelivery = {
   delivered: "delivered",
+  acted: "acted",
   dropped: "dropped",
   not_triggered: "not_triggered",
   not_drawn: "not_drawn",
@@ -28458,8 +28568,13 @@ export interface CallCallActorApi {
   role?: string;
   /** The channel id they joined the call on. */
   channel?: string;
-  /** How far they got in the call; absent on a call stored without a summary. */
+  /** How far they got in the call: delivered (spoke), acted (took part through the world, no line), dropped (due, but neither spoke nor acted), not_triggered, not_drawn; absent on a call stored without a summary. */
   delivery?: CallCallActorApiDelivery;
+  /**
+   * How far they got, in the words the call shows.
+   * @minLength 1
+   */
+  delivery_label?: string;
 }
 
 /**
@@ -28936,10 +29051,12 @@ export interface TrialStateApi {
   state_changes: TrialStateChangeApi[];
   /** Writes the world committed twice after the agent's answer was lost; the trial fails on them. */
   duplicates: DuplicateCommitApi[];
-  /** False when World changes are not recorded for this agent: its tools run inside it. */
+  /** False when World changes are not recorded for this trial: its tools ran where the world cannot see. */
   recorded?: boolean;
   /** Why they were not recorded. */
   why?: string;
+  /** Why they were not recorded, in the words World state shows. */
+  why_label?: string;
   /** True when what changed in the world could not be read; checks that needed it read Unmeasured. */
   unreadable: boolean;
   records?: TrialRecordsApi;
@@ -29607,7 +29724,7 @@ export interface RunDashboardMetricApi {
   measured: number;
   total: number;
   note: string;
-  /** True when the value is null because the calls ran with no pass or fail: no score, not missing data. Set only on the pass rate. */
+  /** True when the value is null because the calls ran with no pass or fail: no score, not missing data. Set only on the pass rates (calls and trials). */
   no_score: boolean;
 }
 
@@ -29897,6 +30014,16 @@ export interface AnalyticsSummaryApi {
   latency: MetricStatsApi;
   tokens: TotalMetricStatsApi;
   cost_cents: TotalMetricStatsApi;
+  /** Comparable trials that passed. */
+  trials_passed: number;
+  /** Comparable trials that passed or failed: the trial pass rate's base. */
+  trials_evaluated: number;
+  /** Comparable trials that errored or were inconclusive, counted apart from the base. */
+  trials_inconclusive: number;
+  /** Trials left out because they did not start from the seeded records. */
+  trials_excluded_not_comparable: number;
+  /** Trials passed over trials evaluated, as a percent; null when none was evaluated. */
+  trial_pass_rate: number;
   evaluators: number;
   /** The run's verdict from its calls: no_score when it completed with only unscored calls. */
   outcome_status: AnalyticsSummaryApiOutcomeStatus;
@@ -30226,6 +30353,11 @@ export interface RunExecutionApi {
   agent_differs?: boolean;
   capability_snapshot?: HarnessCapabilityReportApi;
   readiness_selection?: HarnessRunReadinessSelectionApi;
+  /**
+   * Said when the run replayed a build without its environment's actors.
+   * @minLength 1
+   */
+  build_notice?: string;
   selected_scenario_keys?: string[];
   /** @minimum 1 */
   trials?: number;
@@ -30413,7 +30545,9 @@ export interface CallActorFacetValueApi {
   label: string;
   /** Calls where at least one of the actor's lines reached the agent. */
   delivered: number;
-  /** Calls where the actor was triggered but none of its lines reached the agent. */
+  /** Calls where the actor said no line but took part through the world, by its actions. */
+  acted: number;
+  /** Calls where the actor was due but neither spoke a line nor acted in the world. */
   dropped: number;
   /** Calls the actor was planned for but never triggered in. */
   not_triggered: number;
