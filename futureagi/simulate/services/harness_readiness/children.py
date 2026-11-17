@@ -8,23 +8,18 @@ from typing import Any
 
 from simulate.models import CallExecution, HostedHarnessJob
 from simulate.services.harness_readiness.catalogue import EvidenceCheck, Reading
+from simulate.services.harness_worker_states import CUT_SHORT_STATES
+from simulate.services.harness_worker_timeline import HAND_OFF_TYPES
+from simulate.services.harness_workers import WORKERS_KEY
 from simulate.services.hosted_harness_ingestion import TRIAL_STATE_KEY
 
 _CALLS_READ = 20
-# The key the call's worker record is kept under.
-WORKERS_KEY = "harness_workers"
-# A transfer passes control and never returns; a delegation is whole once it returns.
-_HAND_OFFS = frozenset({"delegated", "transferred"})
-# A worker's stored end `state` when the trial stopped it before it returned: past its deadline, cancelled, or cut off.
-_CUT_SHORT = frozenset(
-    {"no_return", "deadline_passed", "cancel_requested", "cancelled", "infrastructure"}
-)
 
 
 def _hand_offs_whole(record: Mapping[str, Any]) -> bool:
     events = [one for one in record.get("events") or [] if isinstance(one, Mapping)]
     back = {one.get("delegation_id") for one in events if one.get("type") == "returned"}
-    hand_offs = [one for one in events if one.get("type") in _HAND_OFFS]
+    hand_offs = [one for one in events if one.get("type") in HAND_OFF_TYPES]
     return bool(hand_offs) and all(
         one.get("type") == "transferred" or one.get("delegation_id") in back
         for one in hand_offs
@@ -130,7 +125,7 @@ def children(declared: Any, runs: list[Any]) -> Reading:
             "check": "timeout_or_cancel",
             "result": result(
                 any(
-                    isinstance(one, Mapping) and one.get("state") in _CUT_SHORT
+                    isinstance(one, Mapping) and one.get("state") in CUT_SHORT_STATES
                     for record in records
                     for one in record.get("workers") or []
                 )
@@ -149,7 +144,7 @@ def children(declared: Any, runs: list[Any]) -> Reading:
     ):
         return Reading("passed", evidence=checks, checked_at=at)
     if not any(
-        isinstance(one, Mapping) and one.get("type") in _HAND_OFFS
+        isinstance(one, Mapping) and one.get("type") in HAND_OFF_TYPES
         for record in records
         for one in record.get("events") or []
     ):
