@@ -424,7 +424,7 @@ def test_the_runs_list_counts_a_stopped_call_as_cancelled_not_errored(
         call.save(update_fields=["status", "ended_reason", "call_metadata"])
         _result(finished_run, call, status=status)
 
-    assert receipt_outcome_counts([finished_run.id])[finished_run.id] == {
+    assert receipt_outcome_counts([finished_run.id])[finished_run.id]["by_status"] == {
         "cancelled": 1,
         "skipped": 1,
     }
@@ -446,7 +446,7 @@ def test_the_runs_list_counts_a_call_stopped_before_its_receipt_as_cancelled(
     skipped.call_metadata = {"harness_outcome_status": "skipped"}
     skipped.save(update_fields=["status", "call_metadata"])
 
-    assert receipt_outcome_counts([finished_run.id])[finished_run.id] == {
+    assert receipt_outcome_counts([finished_run.id])[finished_run.id]["by_status"] == {
         "cancelled": 1
     }
 

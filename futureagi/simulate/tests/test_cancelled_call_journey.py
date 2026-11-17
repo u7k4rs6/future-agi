@@ -118,7 +118,7 @@ def _seal(attempt, run, key, *, status, failure=None, call=None):
     body["digest"] = canonical_digest(body)
     with (
         patch("simulate.services.harness_usage.replay_harness_usage"),
-        patch("simulate.services.hosted_harness_ingestion._dispatch_worker_read"),
+        patch("simulate.services.hosted_harness_ingestion.dispatch_worker_read"),
     ):
         ingest_result_receipt(attempt, body, replay_usage=False)
 
@@ -252,7 +252,12 @@ def test_the_cancel_seal_waits_on_a_call_in_flight_until_its_receipt_lands(
         run,
         STOPPED,
         status="errored",
-        failure={"code": "user_canceled", "domain": "platform_sync"},
+        failure={
+            "domain": "platform_sync",
+            "stage": "running",
+            "code": "user_canceled",
+            "message": "stopped",
+        },
     )
     from django.core.cache import cache
 

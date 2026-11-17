@@ -45,7 +45,6 @@ def test_shared_records_and_bypass_notice_are_kept_and_served(
 ) -> None:
     from simulate.services.hosted_harness_ingestion import TRIAL_STATE_KEY
     from simulate.tests.test_harness_call_actors import _ingest
-    from simulate.views.run_results_v3 import TrialStateSerializer
 
     shared = [
         {
@@ -97,8 +96,11 @@ def test_shared_records_and_bypass_notice_are_kept_and_served(
     assert trial["notices"][0]["workers"] == ["refund"]
     # A malformed list is dropped, never kept half-read.
     assert "workers" not in trial["notices"][1]
-    served = TrialStateSerializer(trial).data
-    assert served["notices"][0]["workers"] == ["refund"]
+    served = _served_trial(trial)
+    bypass = next(
+        one for one in served["notices"] if one["code"] == "worker_channel_bypassed"
+    )
+    assert bypass["workers"] == ["refund"]
     assert served["shared_records"][0]["committed_writes"] == 1
 
 

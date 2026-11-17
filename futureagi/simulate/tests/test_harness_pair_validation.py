@@ -289,8 +289,11 @@ class TestDispatch:
         job.refresh_from_db()
         assert job.state == "failed"
         assert job.failure["code"] == "scheduler_unavailable"
-        assert job.payload["metadata"]["validation_outcome"] == "retry"
-        assert _row(environment).state == "pending"
+        # Failed on our side: the check reads unavailable and the bundle stays pending, never failed.
+        assert job.payload["metadata"]["validation_outcome"] == "unavailable"
+        bundle = _row(environment)
+        assert bundle.state == "pending"
+        assert bundle.error["last_attempt"]["cause"] == "scheduler_unavailable"
 
 
 class TestLaunch:
@@ -865,7 +868,12 @@ class TestAgentMoves:
     def test_fix_candidate_default_accepts_validating(self):
         from types import SimpleNamespace
 
-        candidate = SimpleNamespace(fix_run=SimpleNamespace(environment=None))
+        candidate = SimpleNamespace(
+            fix_run=SimpleNamespace(
+                base_agent_version=SimpleNamespace(version_number=1),
+                environment=SimpleNamespace(agent_version_id=1),
+            )
+        )
 
         with (
             patch.object(agent_fix_runs, "require_shippable"),

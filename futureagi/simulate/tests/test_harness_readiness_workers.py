@@ -4,6 +4,7 @@ each case's hold from `worker-limits.json`, and the sub-agent evidence row from 
 import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 
@@ -494,7 +495,8 @@ def _children(monkeypatch, calls, contract=CONTRACT, runs=("r1",)):
     from simulate.models import CallExecution
 
     monkeypatch.setattr(CallExecution, "objects", _Calls(calls))
-    return children_module.children(contract["workers"], list(runs))
+    # The calls stand in for the runs' calls; the runs themselves are only ids here.
+    return children_module.children(contract["workers"], [uuid4() for _ in runs])
 
 
 def _checks(reading):

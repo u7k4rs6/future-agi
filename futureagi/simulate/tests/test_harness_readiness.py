@@ -24,6 +24,7 @@ from simulate.services.agent_setup import store_agent
 from simulate.services.harness_readiness import catalogue as catalogue_module
 from simulate.services.harness_readiness import evidence as evidence_module
 from simulate.services.harness_readiness import report as report_module
+from simulate.services.harness_readiness import selection as selection_module
 from simulate.services.harness_versioning import archives, assembly
 from simulate.services.harness_versioning import validation as validation_module
 from simulate.services.hosted_harness import HostedHarnessError
@@ -844,7 +845,9 @@ class TestPairs:
 
         with (
             patch.object(
-                report_module, "read_evidence", wraps=report_module.read_evidence
+                selection_module,
+                "read_evidence",
+                wraps=selection_module.read_evidence,
             ) as read,
             patch.object(harness_readiness, "store_run_snapshot") as stored,
         ):
@@ -883,7 +886,7 @@ class TestPairs:
 
         with (
             patch.object(
-                report_module,
+                selection_module,
                 "read_evidence",
                 side_effect=ConnectionError("storage unreachable"),
             ),
@@ -1047,9 +1050,11 @@ class TestApi:
             "computed_at",
             "selection",
             "workers",
+            "blockers",
         }
-        # A single agent declares no workers: no worker rows.
+        # A single agent declares no workers: no worker rows, and only blocked rows block.
         assert body["workers"] == []
+        assert body["blockers"] == body["counts"]["blocked"]
         assert set(body["selection"]) == {
             "suite_total",
             "excluded",

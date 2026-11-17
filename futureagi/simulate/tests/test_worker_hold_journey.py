@@ -18,7 +18,6 @@ from simulate.tests.test_harness_readiness import (
     BASE,
     _built,
     _certify,
-    _committed_run,
     _environment,
     _report,
 )
@@ -50,7 +49,8 @@ WORKERS = [
 
 
 def _sealed(door, *, held):
-    """ALK's root `door.json` and `worker-limits.json`: each refund case relies on the refund worker."""
+    """ALK's root `door.json`, `worker-limits.json` and, behind a door, `permissions.json`: each refund case relies
+    on the refund worker."""
 
     def entry(relies):
         hold = held and relies
@@ -65,7 +65,19 @@ def _sealed(door, *, held):
             "deadline": None,
         }
 
+    # With the door in place, ALK's tool proxy seals each separate worker's allow-list.
+    permissions = (
+        {
+            assembly.PERMISSIONS_FILE_PATH: {
+                f"worker:{one['id']}": {"allow": one["allowed_tools"]}
+                for one in WORKERS
+            }
+        }
+        if door.get("present")
+        else {}
+    )
     return {
+        **permissions,
         assembly.DOOR_OUTCOME_PATH: door,
         assembly.WORKER_LIMITS_PATH: {
             "workers": {one["id"]: {"limited": True} for one in WORKERS},
@@ -205,8 +217,20 @@ def test_a_bypass_alk_reports_holds_the_cases_relying_on_that_worker(
         },
         metadata,
     )
-    run = _committed_run(environment, django_capture_on_commit_callbacks)
-    CallExecution.objects.filter(test_execution_id=run.test_execution_id).update(
+    # Before any call bypassed it, the run of the whole suite holds nothing back.
+    with django_capture_on_commit_callbacks(execute=True):
+        started = _run(
+            auth_client, environment, REFUND_KEYS + LOOKUP_KEYS, "worker-bypass-all"
+        )
+    assert started.status_code in (200, 201, 202), started.content
+    run = HostedHarnessJob.no_workspace_objects.filter(environment=environment).latest(
+        "created_at"
+    )
+    # One of its calls carries the notice.
+    bypassed = CallExecution.objects.filter(
+        test_execution_id=run.test_execution_id
+    ).first()
+    CallExecution.objects.filter(id=bypassed.id).update(
         call_metadata={TRIAL_STATE_KEY: metadata[TRIAL_STATE_KEY]}
     )
 
