@@ -155,6 +155,37 @@ function WorldState({ trialState }) {
       )}
     </>
   );
+  // Records more than one participant called, shown whether or not the trial changed anything.
+  const sharedList = shared.length > 0 && (
+    <Box data-testid="shared-records">
+      <Typography sx={{ typography: "s2", fontWeight: 600 }}>
+        {C.sharedHeading}
+      </Typography>
+      {shared.map((record) => (
+        <Box key={record.key}>
+          <Typography sx={{ ...quiet, fontWeight: 600 }}>
+            {C.sharedRecord(record)}
+          </Typography>
+          {record.actions.map((action, index) => (
+            <Typography key={`${record.key}-${index}`} sx={quiet}>
+              {C.sharedAction(action, action.name)}
+            </Typography>
+          ))}
+          {C.sharedRecordCut[record.truncation] && (
+            <Typography sx={quiet}>
+              {C.sharedRecordCut[record.truncation]}
+            </Typography>
+          )}
+          <Typography sx={quiet}>
+            {C.committedWrites(record.committed_writes)}
+          </Typography>
+        </Box>
+      ))}
+      {trialState.shared_records_truncated && (
+        <Typography sx={quiet}>{C.sharedTruncated}</Typography>
+      )}
+    </Box>
+  );
   if (!changes.length && !decisions.length && !preRun.length)
     return (
       <Stack spacing={1.5} sx={{ p: 2 }}>
@@ -162,6 +193,7 @@ function WorldState({ trialState }) {
         {noticeList}
         {!unreadable && <Typography sx={quiet}>{C.empty}</Typography>}
         {records && <RecordsSection records={records} outside={outside} />}
+        {sharedList}
       </Stack>
     );
   return (
@@ -229,36 +261,7 @@ function WorldState({ trialState }) {
         </Box>
       ))}
       {records && <RecordsSection records={records} outside={outside} />}
-      {shared.length > 0 && (
-        <Box data-testid="shared-records">
-          <Typography sx={{ typography: "s2", fontWeight: 600 }}>
-            {C.sharedHeading}
-          </Typography>
-          {shared.map((record) => (
-            <Box key={record.key}>
-              <Typography sx={{ ...quiet, fontWeight: 600 }}>
-                {C.sharedRecord(record)}
-              </Typography>
-              {record.actions.map((action, index) => (
-                <Typography key={`${record.key}-${index}`} sx={quiet}>
-                  {C.sharedAction(action, action.name)}
-                </Typography>
-              ))}
-              {C.sharedRecordCut[record.truncation] && (
-                <Typography sx={quiet}>
-                  {C.sharedRecordCut[record.truncation]}
-                </Typography>
-              )}
-              <Typography sx={quiet}>
-                {C.committedWrites(record.committed_writes)}
-              </Typography>
-            </Box>
-          ))}
-          {trialState.shared_records_truncated && (
-            <Typography sx={quiet}>{C.sharedTruncated}</Typography>
-          )}
-        </Box>
-      )}
+      {sharedList}
       {preRun.length > 0 && (
         <Box>
           <Typography sx={{ typography: "s2", fontWeight: 600 }}>
