@@ -12,6 +12,7 @@ from django.http import Http404
 from rest_framework import status
 
 from simulate.models import CallExecution
+from simulate.services.harness_worker_states import served_workers, stopped_by_user
 from simulate.services.harness_worker_steps import served_record
 from simulate.services.harness_workers import (
     READ_KEY,
@@ -20,6 +21,7 @@ from simulate.services.harness_workers import (
     first_read_due,
     read_pending,
 )
+from simulate.services.run_results_v3 import receipt_sub_goals
 from simulate.types import CallWorkersRecord, WorkersState, WorkerTimeline
 
 
@@ -49,13 +51,24 @@ def _stated(state: WorkersState, at: str, now: datetime) -> WorkersReply:
     return WorkersReply(status.HTTP_200_OK, served_record(_empty(at), now, state=state))
 
 
-def _answer(metadata: Mapping[str, object], now: datetime) -> WorkersReply | None:
+def _answer(
+    call: CallExecution,
+    metadata: Mapping[str, object],
+    now: datetime,
+    *,
+    attempt: UUID | None,
+) -> WorkersReply | None:
     """The kept record, or a failed read, or None when the read ran and found no hand-off or has not run."""
     record = metadata.get(WORKERS_KEY)
     if isinstance(record, Mapping) and record:
-        return WorkersReply(
-            status.HTTP_200_OK, served_record(cast(WorkerTimeline, record), now)
+        # A worker's own checks and the failed checks' places come from the same metadata as the record.
+        served = served_record(
+            served_workers(call, cast(WorkerTimeline, record)),
+            now,
+            receipt_sub_goals(metadata),
+            stopped_by_user=stopped_by_user(call, attempt),
         )
+        return WorkersReply(status.HTTP_200_OK, served)
     read = metadata.get(READ_KEY)
     if isinstance(read, Mapping) and read.get("failed"):
         return _stated("unreadable", str(read.get("at") or now.isoformat()), now)
@@ -74,11 +87,11 @@ def call_workers(
         if snapshot.call_metadata is None:
             # Snapshotted before snapshots kept the call's metadata: its record, if any, was not kept.
             return _stated("not_kept", now.isoformat(), now)
-        return _answer(snapshot.call_metadata, now) or WorkersReply(
-            status.HTTP_204_NO_CONTENT
-        )
+        return _answer(
+            call, snapshot.call_metadata, now, attempt=attempt
+        ) or WorkersReply(status.HTTP_204_NO_CONTENT)
     metadata = call.call_metadata if isinstance(call.call_metadata, dict) else {}
-    answer = _answer(metadata, now)
+    answer = _answer(call, metadata, now, attempt=None)
     if answer is not None:
         return answer
     due = first_read_due(call)

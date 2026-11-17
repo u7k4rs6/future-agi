@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Iterator
 from dataclasses import asdict
 from itertools import islice
-from typing import Any
+from typing import Any, get_args
 
 import structlog
 from django.db.models import QuerySet
@@ -93,6 +93,7 @@ from simulate.services.scoring_status import (
     scoring_counts,
 )
 from simulate.services.test_executor import build_eval_configs_map
+from simulate.types import SubjectKind
 from simulate.views.scoping import run_test_workspace_filter
 from tfc.utils.api_contracts import validated_request
 from tfc.utils.api_serializers import ApiErrorResponseSerializer
@@ -238,6 +239,7 @@ class OutcomeCountsSerializer(serializers.Serializer):
     passed = serializers.IntegerField()
     failed = serializers.IntegerField()
     error = serializers.IntegerField()
+    cancelled = serializers.IntegerField()
     inconclusive = serializers.IntegerField()
     no_score = serializers.IntegerField()
 
@@ -380,6 +382,14 @@ class SubGoalResultSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         help_text="What the check was decided from: world_state, tool_calls, transcript, recording.",
+    )
+    # `worker:<id>` for a worker's own check, reported beside the task verdict; absent for the task's.
+    subject = serializers.CharField(required=False)
+    subject_kind = serializers.ChoiceField(
+        choices=get_args(SubjectKind), default="task"
+    )
+    worker_id = serializers.CharField(
+        required=False, help_text="The worker whose own check this is."
     )
 
 

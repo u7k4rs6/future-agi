@@ -128,6 +128,9 @@ def _from_row(
             }
             if sealed.get("id"):
                 event["runtime_event_id"] = ident
+            if row.get("refusal_code"):
+                # Why the world refused it, as its action log coded it.
+                event["refusal_code"] = str(row["refusal_code"])
             for _key, flag in PAYLOADS:
                 if row.get(flag):
                     event[flag] = True

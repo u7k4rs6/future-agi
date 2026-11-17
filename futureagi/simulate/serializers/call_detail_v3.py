@@ -14,7 +14,7 @@ from simulate.serializers.harness_actors import (
     HarnessActorFallbackSerializer,
     HarnessActorLimitsSerializer,
 )
-from simulate.types import CallActorDelivery
+from simulate.types import CallActorDelivery, SharedRecordTruncation
 
 FUNCTION_CALL_KINDS = ("agent_call", "world_actor_action")
 
@@ -112,8 +112,18 @@ class BlockedCallSerializer(serializers.Serializer):
     )
 
 
+class TrialRefusedActionSerializer(serializers.Serializer):
+    action = serializers.CharField()
+    code = serializers.CharField(
+        allow_blank=True,
+        help_text="The world's refusal code, as the harness sealed it.",
+    )
+    reason = serializers.CharField(allow_blank=True)
+
+
 class TrialStateChangeSerializer(serializers.Serializer):
-    """What one participant (the agent, or an actor) attempted in the trial and what the world made of it."""
+    """What one participant (the agent, an actor, or a `worker:<id>`) attempted in the trial and what the world
+    made of it."""
 
     who = serializers.CharField()
     name = serializers.CharField()
@@ -141,6 +151,12 @@ class TrialStateChangeSerializer(serializers.Serializer):
         required=False,
         help_text="Calls to hosts outside the test world, refused before they left: counted in refused, never "
         "a change.",
+    )
+    # What the world refused, with its code and why; a worker's attempt outside its permissions is one.
+    refused_actions = TrialRefusedActionSerializer(many=True, required=False)
+    worker_id = serializers.CharField(
+        required=False,
+        help_text="The worker this participant is; absent for the agent and the actors.",
     )
 
 
@@ -287,8 +303,9 @@ class TrialNoticeSerializer(serializers.Serializer):
 
     code = serializers.CharField(
         help_text="fault_not_applied, fault_not_triggered, fault_unknown_action, fault_unreadable, "
-        "duplicates_unreadable, evidence_incomplete, start_differs, changed_outside_world, or approval_missing "
-        "(the agent's change refused before anyone approved it: `action`, `count`)"
+        "duplicates_unreadable, evidence_incomplete, start_differs, changed_outside_world, approval_missing "
+        "(the agent's change refused before anyone approved it: `action`, `count`), worker_channel_bypassed or "
+        "worker_limits_not_enforced"
     )
     message = serializers.CharField(
         help_text="Plain words for the person reading the run."
@@ -299,6 +316,8 @@ class TrialNoticeSerializer(serializers.Serializer):
     count = serializers.IntegerField(
         required=False, help_text="For evidence_incomplete."
     )
+    # The workers the notice names, e.g. a separate worker that reached the world without its own channel.
+    workers = serializers.ListField(child=serializers.CharField(), required=False)
 
 
 class DuplicateCommitSerializer(serializers.Serializer):
@@ -373,6 +392,49 @@ class TrialStartSerializer(serializers.Serializer):
     )
 
 
+class SharedRecordActionSerializer(serializers.Serializer):
+    who = serializers.CharField()
+    name = serializers.CharField(
+        help_text="The participant's name, as the state changes give it."
+    )
+    tool = serializers.CharField(allow_blank=True)
+    outcome = serializers.CharField()
+    # False for a call the world logged as a read; true for a write; null when nothing says.
+    write = serializers.BooleanField(allow_null=True)
+
+
+class SharedRecordSerializer(serializers.Serializer):
+    key = serializers.CharField(
+        help_text="What the calls named, as argument=value; never a database identity."
+    )
+    argument = serializers.CharField()
+    value = serializers.CharField()
+    actions = SharedRecordActionSerializer(many=True)
+    committed_writes = serializers.IntegerField()
+    truncated = serializers.BooleanField()
+    actions_truncated = serializers.BooleanField(
+        allow_null=True,
+        default=None,
+        help_text="This record's own actions were cut; null for a trial sealed before the harness said so.",
+    )
+    truncation = serializers.ChoiceField(
+        choices=get_args(SharedRecordTruncation),
+        allow_null=True,
+        default=None,
+        help_text="Which bound cut it: its own actions, the trial's list of records, or unknown on a trial sealed "
+        "before the harness said which; null when nothing was cut.",
+    )
+
+
+class StoppedWorkerSerializer(serializers.Serializer):
+    worker = serializers.CharField()
+    process = serializers.CharField()
+    at = serializers.FloatField(
+        help_text="When the harness ended it, seconds since the epoch."
+    )
+    reason = serializers.CharField()
+
+
 class TrialStateSerializer(serializers.Serializer):
     """A trial's World state. Every list is present, empty when the trial had none."""
 
@@ -428,6 +490,22 @@ class TrialStateSerializer(serializers.Serializer):
     notices = TrialNoticeSerializer(
         many=True,
         help_text="How the trial ran that the person should know, e.g. a scenario fault that did not take effect.",
+    )
+    shared_records = SharedRecordSerializer(
+        many=True,
+        required=False,
+        help_text="Records two or more participants named in this trial, and what the world made of each call.",
+    )
+    shared_records_truncated = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="More records were touched by more than one participant than the trial kept; null for a trial "
+        "sealed before the harness said so.",
+    )
+    stopped_workers = StoppedWorkerSerializer(
+        many=True,
+        required=False,
+        help_text="Workers whose own process the harness ended when their deadline passed.",
     )
 
 

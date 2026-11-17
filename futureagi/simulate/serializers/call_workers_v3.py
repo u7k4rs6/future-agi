@@ -6,16 +6,33 @@ from rest_framework import serializers
 
 from simulate.types import (
     HandOffEnd,
+    PlacementStatus,
+    SubGoalUnscored,
     TextFormat,
+    Untied,
     WorkerAttribution,
+    WorkerCleanupStatus,
     WorkerCollection,
     WorkerEventType,
     WorkerRelationship,
     WorkersState,
+    WorkerState,
     WorkerStatus,
     WorkerStepKind,
 )
 from tfc.utils.serializer_fields import JsonValueField
+
+
+class CleanupSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=get_args(WorkerCleanupStatus))
+    at = serializers.CharField(allow_null=True)
+
+
+class WorkerCheckSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    # Null when nothing passed or failed it; `result` then says why.
+    passed = serializers.BooleanField(allow_null=True)
+    result = serializers.ChoiceField(choices=get_args(SubGoalUnscored), required=False)
 
 
 class CallWorkerSerializer(serializers.Serializer):
@@ -28,6 +45,17 @@ class CallWorkerSerializer(serializers.Serializer):
     instance_ids = serializers.ListField(child=serializers.CharField())
     model = serializers.CharField(required=False)
     tokens = serializers.IntegerField(required=False)
+    # Absent on a record read before end states were kept.
+    state = serializers.ChoiceField(choices=get_args(WorkerState), required=False)
+    cut_short = serializers.BooleanField()
+    # The world refused its later calls past its action deadline; its execution was not stopped.
+    past_deadline = serializers.BooleanField()
+    # When the harness ended this worker's own process past its deadline.
+    stopped_at = serializers.FloatField(required=False)
+    # A cut-short worker's cleanup, computed when served; absent for a worker that returned or never ran.
+    cleanup = CleanupSerializer(required=False)
+    # Its own checks in this call, beside the call's verdict and never deciding it.
+    checks = WorkerCheckSerializer(many=True)
 
 
 class ShownTextSerializer(serializers.Serializer):
@@ -57,6 +85,13 @@ class CallWorkerEventSerializer(serializers.Serializer):
     # The record's size limit was reached before this step, so that part was not kept.
     input_omitted = serializers.BooleanField(required=False)
     output_omitted = serializers.BooleanField(required=False)
+    refusal_code = serializers.CharField(
+        allow_blank=True,
+        required=False,
+        help_text="The world's refusal code, as the harness sealed it.",
+    )
+    # `async` for a hand-off to a background job, placed under the tool call that launched it.
+    launch = serializers.ChoiceField(choices=("async",), required=False)
     relationship = serializers.ChoiceField(
         choices=get_args(WorkerRelationship), required=False
     )
@@ -99,6 +134,7 @@ class CallWorkerStepSerializer(serializers.Serializer):
     ended_at = serializers.CharField(allow_null=True, required=False)
     parallel = serializers.BooleanField(required=False)
     end = serializers.ChoiceField(choices=get_args(HandOffEnd), required=False)
+    end_state = serializers.ChoiceField(choices=get_args(WorkerState), required=False)
     # A hand-off that failed or never returned, as `counts.did_not_finish` counts it.
     did_not_finish = serializers.BooleanField(required=False)
     # The worker's first hand-off, which carries its model and token totals.
@@ -135,6 +171,19 @@ class HandOffCountsSerializer(serializers.Serializer):
     cut_off = serializers.IntegerField()
 
 
+class FailurePlacementSerializer(serializers.Serializer):
+    """A failed or unsure sub-goal on its worker's one hand-off, or not tied to a step, with why."""
+
+    name = serializers.CharField()
+    status = serializers.ChoiceField(choices=get_args(PlacementStatus))
+    step = serializers.IntegerField(allow_null=True)
+    # The worker whose own check it is, as the record's `worker_id`; null for a task check.
+    worker_id = serializers.CharField(allow_null=True)
+    # `no_moment`: a task check, which nothing ties to a moment; `several_hand_offs` / `no_hand_off`: a worker's check
+    # whose worker was handed work more than once, or never.
+    untied = serializers.ChoiceField(choices=get_args(Untied), allow_null=True)
+
+
 class CallWorkersQuerySerializer(serializers.Serializer):
     attempt = serializers.UUIDField(
         required=False,
@@ -164,12 +213,16 @@ class CallWorkersResponseSerializer(serializers.Serializer):
     turns = CallWorkerRoundSerializer(many=True)
     depth = serializers.IntegerField()
     parallel = serializers.IntegerField()
+    # Hand-offs to background jobs, placed under the tool call that launched each.
+    asynchronous = serializers.IntegerField()
     overlap_unknown = serializers.BooleanField()
     worker_depths = serializers.DictField(child=serializers.IntegerField())
     counts = HandOffCountsSerializer()
     # The record is not whole, so a missing return may only be one it did not keep.
     cut_off = serializers.BooleanField()
     beyond_boundary = serializers.BooleanField()
+    placements = FailurePlacementSerializer(many=True)
+    stopped_by_user = serializers.BooleanField()
     # A later read is still due and may change the record; the client reads again once, at `next_read_at`.
     pending = serializers.BooleanField()
     next_read_at = serializers.CharField(required=False)

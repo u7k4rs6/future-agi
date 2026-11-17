@@ -25,6 +25,8 @@ export const toRun = (raw) => ({
   errored: raw.outcome_errored ?? null,
   noScore: raw.outcome_no_score ?? null,
   skipped: raw.outcome_skipped ?? null,
+  // Stopped by the user: neither errored nor failed.
+  cancelled: raw.outcome_cancelled ?? null,
   // Null when nothing was scored.
   passRate: raw.pass_rate,
   scored: raw.scored,
@@ -74,6 +76,8 @@ export const mapVersionDetail = (raw) => ({
   agentKind: raw.agent_kind ?? null,
   apiKey: raw.api_key ?? null,
   config: raw.configuration_snapshot ?? {},
+  // The workers its newest built environment declares, read-only on the Definition tab.
+  participants: raw.participants,
 });
 
 export function useAgentDetail(agentId) {

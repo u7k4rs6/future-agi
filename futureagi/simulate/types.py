@@ -18,6 +18,40 @@ WorkerStepKind = Literal["handoff", "tool_call"]
 HandOffEnd = Literal["finished", "failed", "passed", "no_return", "cut_off"]
 # `code`: the text is data (JSON, shown indented, or a printed dict or list); `text`: prose or markdown.
 TextFormat = Literal["code", "text"]
+# How a worker ended in one call.
+WorkerState = Literal[
+    "completed",
+    "failed",
+    "no_return",
+    "deadline_passed",
+    "cancel_requested",
+    "cancelled",
+    "infrastructure",
+    "not_observed",
+]
+# How a call's trial ended, which a worker still out when it ended takes.
+TrialEnding = Literal["ended", "infrastructure", "cancel_requested", "cancelled"]
+# Whose check a sub-goal is: the task's, or one of the agent's workers'.
+SubjectKind = Literal["task", "worker"]
+PlacementStatus = Literal["failed", "inconclusive"]
+# Why a failed check is on no step: a task check names no moment; a worker check's worker had several hand-offs or none.
+Untied = Literal["no_moment", "several_hand_offs", "no_hand_off"]
+# A worker's own check or world change is named `worker:<id>`; the task's and the agent's are not.
+WORKER_SUBJECT_PREFIX = "worker:"
+
+
+def worker_subject_id(subject: object) -> str | None:
+    """The worker id a `worker:<id>` subject names; None for any other subject."""
+    text = str(subject or "")
+    return (
+        text[len(WORKER_SUBJECT_PREFIX) :]
+        if text.startswith(WORKER_SUBJECT_PREFIX)
+        else None
+    )
+
+
+def is_worker_subject(subject: object) -> bool:
+    return worker_subject_id(subject) is not None
 
 
 @dataclass(frozen=True)
@@ -78,6 +112,8 @@ class SealedToolCall(TypedDict, total=False):
     error: object
     ok: bool
     refused: bool
+    # Why the world refused it, as its action log coded it.
+    refusal_code: str
     at: float
     ended_at: float
     start_time_ms: float
@@ -94,6 +130,26 @@ class SealedToolCall(TypedDict, total=False):
     input_omitted: bool
     output_omitted: bool
     worker_events: list[SealedWorkerEvent]
+
+
+# How a declared worker reaches the world; `not_declared` when its contract entry does not say.
+WorkerBinding = Literal["separate", "shared", "not_declared"]
+
+
+class ContractWorker(TypedDict):
+    """A worker the app's contract declares, as the Workers and Participants cards show it."""
+
+    id: str
+    name: NotRequired[str]
+    tools: list[str]
+    # The tools it may use when narrower than what its code holds; empty means all of `tools`.
+    allowed_tools: list[str]
+    # The tools the cards list: its allowed tools when narrower, else every tool its code holds.
+    tools_shown: list[str]
+    binding: WorkerBinding
+    address_env: NotRequired[str]
+    # The process that runs it alone, when the app serves it as its own service.
+    process: NotRequired[str]
 
 
 class DeclaredWorker(TypedDict):
@@ -118,6 +174,82 @@ class TurnSummary(TypedDict):
     shown: NotRequired[ShownText | None]
 
 
+# A sub-goal with no pass or fail: why it has none.
+SubGoalUnscored = Literal["not_applicable", "inconclusive", "unmeasured"]
+
+
+class SubGoalEntry(TypedDict):
+    """One sub-goal of a call as the results list it; `worker_id` names the worker whose own check it is."""
+
+    name: str
+    passed: bool | None
+    result: NotRequired[SubGoalUnscored]
+    reason: NotRequired[str]
+    evidence: NotRequired[list[str]]
+    subject: NotRequired[str]
+    subject_kind: SubjectKind
+    worker_id: NotRequired[str]
+
+
+# `stopped`: the harness ended the worker's own process (a worker the app serves alone) when its deadline passed.
+WorkerCleanupStatus = Literal[
+    "stopped", "stopped_with_sandbox", "still_running", "unknown"
+]
+
+
+class StoppedWorker(TypedDict):
+    """A worker whose own process the harness ended past its deadline, as the trial records it."""
+
+    worker: str
+    process: str
+    # Seconds since the epoch.
+    at: float
+    reason: str
+
+
+# Which bound cut a shared record: its own actions, the trial's list of records, or a trial sealed before the
+# harness said which.
+SharedRecordTruncation = Literal["actions", "records", "unknown"]
+
+
+class SharedRecordAction(TypedDict):
+    who: str
+    name: str
+    tool: str
+    outcome: str
+    # False for a read, true for a write, None when nothing says.
+    write: bool | None
+
+
+class SharedRecord(TypedDict):
+    """A record two or more participants named in one trial, as argument=value."""
+
+    key: str
+    argument: str
+    value: str
+    actions: list[SharedRecordAction]
+    committed_writes: int
+    # As the harness sealed it: its actions or the list of records reached its bound.
+    truncated: bool
+    # As the harness sealed it: this record's own actions were cut; None for a trial sealed before the flag.
+    actions_truncated: NotRequired[bool | None]
+    # Which bound cut it, read from the two flags; None when nothing was cut.
+    truncation: NotRequired[SharedRecordTruncation | None]
+
+
+class WorkerCleanup(TypedDict):
+    status: WorkerCleanupStatus
+    at: str | None
+
+
+class WorkerCheck(TypedDict):
+    """One of a worker's own checks in a call: beside the call's verdict, never deciding it."""
+
+    name: str
+    passed: bool | None
+    result: NotRequired[SubGoalUnscored]
+
+
 class HarnessWorker(TypedDict):
     worker_id: str
     id: str
@@ -127,6 +259,17 @@ class HarnessWorker(TypedDict):
     instance_ids: list[str]
     model: NotRequired[str]
     tokens: NotRequired[int]
+    # How the worker ended in this call; absent on a timeline read before end states were recorded.
+    state: NotRequired[WorkerState]
+    # When the harness ended this worker's own process past its deadline; absent for a worker it did not stop.
+    stopped_at: NotRequired[float]
+    # Served only: a cut-short worker's cleanup, and whether the trial's end stopped it before it returned.
+    cleanup: NotRequired[WorkerCleanup | None]
+    cut_short: NotRequired[bool]
+    # Served only: the world refused its later calls past its action deadline; it was not stopped.
+    past_deadline: NotRequired[bool]
+    # Served only: its own checks in this call.
+    checks: NotRequired[list[WorkerCheck]]
 
 
 class WorkerEvent(TypedDict, total=False):
@@ -149,6 +292,9 @@ class WorkerEvent(TypedDict, total=False):
     output_omitted: bool
     relationship: WorkerRelationship
     parent_delegation_id: str
+    # A hand-off to a background job, placed under the tool call that launched it.
+    launch: Literal["async"]
+    refusal_code: str
     runtime_event_id: str
     runtime_parent_event_id: str
     # Internal: the sealed row this event came from or that a span showed, to join reads; never sent to the client.
@@ -172,6 +318,8 @@ class WorkerStep(TypedDict, total=False):
     ended_at: str | None
     parallel: bool
     end: HandOffEnd
+    # The worker's end state, on a hand-off that did not come back and that the trial's end cut short.
+    end_state: WorkerState
     # The hand-off failed or its worker never came back: counted in `counts.did_not_finish`.
     did_not_finish: bool
     # The worker's first hand-off in the call, where its model and tokens (its totals) are shown.
@@ -214,6 +362,7 @@ class WorkerSteps(TypedDict):
     turns: list[WorkerTurn]
     depth: int
     parallel: int
+    asynchronous: int
     overlap_unknown: bool
     worker_depths: dict[str, int]
     counts: HandOffCounts
@@ -246,10 +395,24 @@ class WorkerTimeline(TypedDict):
     next_read_at: NotRequired[str]
 
 
+class FailurePlacement(TypedDict):
+    """A failed or unsure sub-goal: a worker's own check on that worker's one hand-off; `untied` says why it is on none."""
+
+    name: str
+    status: PlacementStatus
+    # The hand-off step's key; null when the check is on no step.
+    step: int | None
+    # The record's `worker_id` of the worker whose own check it is; null for a task check, which names no worker.
+    worker_id: str | None
+    untied: Untied | None
+
+
 class CallWorkersRecord(WorkerTimeline, WorkerSteps):
     """The `/workers/` response: the kept record with its steps; `pending` while a read is still due."""
 
     pending: bool
+    placements: list[FailurePlacement]
+    stopped_by_user: bool
     state: WorkersState
 
 

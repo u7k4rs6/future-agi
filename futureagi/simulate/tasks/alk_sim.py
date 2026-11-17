@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import timedelta
+from uuid import UUID
 
 import structlog
 from django.db import close_old_connections, transaction
@@ -22,7 +23,12 @@ from django.utils import timezone
 
 from simulate.constants.csat_score_prompt import CSAT_SCORE_PROMPT
 from simulate.models import CallExecution
-from simulate.services.harness_workers import SECOND_READ, attempt_reset, mark_read
+from simulate.services.harness_workers import (
+    FIRST_READ,
+    SECOND_READ,
+    attempt_reset,
+    mark_read,
+)
 from simulate.services.harness_workers import (
     record_call_workers as record_worker_timeline,
 )
@@ -73,6 +79,25 @@ def record_call_workers(payload: dict[str, object]) -> None:
         record_call_workers.apply_async(
             args=(asdict(later),), start_delay=timedelta(seconds=SECOND_READ)
         )
+
+
+def dispatch_worker_read(call_id: UUID | str) -> None:
+    """Read the call's worker timeline once its spans have had time to arrive."""
+    reset = attempt_reset(call_id)
+    # Tied to this attempt, so a rerun before the read runs leaves the new attempt to its own read.
+    read = CallWorkersRead(
+        str(call_id), attempt=reset.isoformat() if reset is not None else ""
+    )
+    try:
+        record_call_workers.apply_async(
+            args=(asdict(read),), start_delay=timedelta(seconds=FIRST_READ)
+        )
+    except Exception:
+        # Said on the call, not dropped: with no read the call would look like one with no other agents.
+        logger.exception(
+            "call_workers_read_dispatch_failed", call_execution_id=str(call_id)
+        )
+        mark_read(call_id, failed=True)
 
 
 @temporal_activity(

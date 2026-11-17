@@ -104,6 +104,9 @@ const WORKERS = [
     observed: true,
     undeclared: false,
     instance_ids: ["s3"],
+    cut_short: false,
+    past_deadline: false,
+    checks: [],
   },
   {
     worker_id: "r/audit",
@@ -112,6 +115,9 @@ const WORKERS = [
     observed: false,
     undeclared: false,
     instance_ids: [],
+    cut_short: false,
+    past_deadline: false,
+    checks: [],
   },
 ];
 const REQUEST = {
@@ -196,6 +202,8 @@ const timeline = ({
     counts: counts(end === "finished" ? 1 : 0, end === "finished" ? 0 : 1),
     cut_off: false,
     beyond_boundary: false,
+    placements: [],
+    stopped_by_user: false,
     pending: false,
     state: "recorded",
     ...rest,
@@ -209,6 +217,20 @@ describe("CallWorkersPanel", () => {
 
   const steps = () =>
     screen.getAllByTestId("raw-event").map((one) => one.dataset.type);
+
+  it.each([false, true])(
+    "says what multi-agent testing covers on every multi-agent call, and adds when the API says it went past it (%s)",
+    (shown) => {
+      result = {
+        data: timeline({ beyond_boundary: shown }),
+        isLoading: false,
+        isError: false,
+      };
+      render(<CallWorkersPanel callExecutionId="c1" />);
+      expect(screen.getByTestId("supported-boundary")).toBeTruthy();
+      expect(screen.queryByTestId("beyond-boundary") !== null).toBe(shown);
+    },
+  );
 
   it("lists every step in order, from the request through each hand-off and its calls to the reply", () => {
     renderSteps(<CallWorkersPanel callExecutionId="c1" />);
@@ -484,6 +506,8 @@ describe("CallWorkersPanel", () => {
       observed,
       undeclared: false,
       instance_ids: [],
+      cut_short: false,
+      checks: [],
     });
     const at = (second) =>
       `2026-10-31T12:00:${String(second).padStart(2, "0")}+00:00`;
@@ -899,6 +923,94 @@ describe("CallWorkersPanel", () => {
       expect(screen.queryByRole("button", { name: C.openInTraces })).toBeNull();
     });
 
+    it("marks only the hand-off a worker never came back from, keeping its steps so far", () => {
+      result = {
+        data: {
+          // The API puts the worker's end only on the hand-off that never came back.
+          ...twoTurns({ returned: null, end_state: "deadline_passed" }),
+          workers: TIMELINE.workers.map((one) =>
+            one.worker_id === handoff.worker_id
+              ? {
+                  ...one,
+                  state: "deadline_passed",
+                  cut_short: false,
+                  past_deadline: true,
+                }
+              : { ...one, state: "not_observed", cut_short: false },
+          ),
+        },
+        isLoading: false,
+        isError: false,
+      };
+      render(<CallWorkersPanel callExecutionId="c1" />);
+      const [chip] = screen.getAllByTestId("worker-cut-short");
+      expect(screen.getAllByTestId("worker-cut-short")).toHaveLength(1);
+      expect(screen.getAllByTestId("turn")[1]).toContainElement(chip);
+      expect(chip).toHaveTextContent(C.cutShort.deadline_passed);
+      // Past its deadline is not "cut short": its execution was never stopped.
+      expect(
+        screen.getByText(C.workersPastDeadline("Order-lookup worker")),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/^Cut short:/)).toBeNull();
+      expect(screen.getAllByTestId("worker-row")).toHaveLength(2);
+    });
+
+    it("shows a worker's failed check on its hand-off, and a task check named by no worker and on no step", () => {
+      result = {
+        data: timeline({
+          placements: [
+            {
+              name: "read_only",
+              status: "failed",
+              step: 1,
+              worker_id: "r/order_lookup",
+              untied: null,
+            },
+            {
+              name: "explained_refusal",
+              status: "inconclusive",
+              step: null,
+              worker_id: null,
+              untied: "no_moment",
+            },
+          ],
+        }),
+        isLoading: false,
+        isError: false,
+      };
+      render(<CallWorkersPanel callExecutionId="c1" />);
+      const [own, task] = screen.getAllByTestId("placed-check");
+      expect(own).toHaveTextContent("Order-lookup worker");
+      expect(own.dataset.step).toBe("1");
+      expect(own).not.toHaveTextContent(C.untied.no_moment);
+      expect(task).not.toHaveTextContent("Order-lookup worker");
+      expect(task.dataset.step).toBe("");
+      // The placed check also shows on its hand-off's row; the task check on no row.
+      const [onRow] = screen.getAllByTestId("worker-row-check");
+      expect(screen.getAllByTestId("worker-row-check")).toHaveLength(1);
+      expect(onRow).toHaveTextContent(`${C.checkStatus.failed} · read_only`);
+      expect(onRow.closest("[data-testid='worker-row']")).toBeTruthy();
+    });
+
+    it("shows a worker's failed check failed and named by its worker, beside the call's passing verdict", () => {
+      result = {
+        data: timeline({
+          workers: WORKERS.map((one) =>
+            one.id === "order_lookup"
+              ? { ...one, checks: [{ name: "read_only", passed: false }] }
+              : one,
+          ),
+        }),
+        isLoading: false,
+        isError: false,
+      };
+      render(<CallWorkersPanel callExecutionId="c1" />);
+      const [check] = screen.getAllByTestId("worker-check");
+      expect(check.dataset.passed).toBe("false");
+      expect(check).toHaveTextContent("Order-lookup worker");
+      expect(check).toHaveTextContent(C.workerCheckResult(false));
+    });
+
     it("says when nothing was recorded for the participants", () => {
       result = {
         data: {
@@ -970,6 +1082,8 @@ describe("CallWorkersPanel", () => {
       observed,
       undeclared: false,
       instance_ids: [],
+      cut_short: false,
+      checks: [],
     });
     const tool = (seq, workerId, name, extra) => ({
       seq,
@@ -1166,6 +1280,74 @@ describe("CallWorkersPanel", () => {
       fireEvent.click(screen.getByRole("checkbox", { name: C.rawEvents }));
       expect(steps()).toContain(C.replyStep);
       expect(screen.queryByTestId("worker-row")).toBeNull();
+    });
+  });
+
+  describe("a cut-short worker and a stopped call", () => {
+    const cut = (cleanup) => ({
+      ...WORKERS[0],
+      state: "cancelled",
+      cut_short: true,
+      ...(cleanup ? { cleanup } : {}),
+    });
+
+    it.each([
+      [{ status: "stopped_with_sandbox", at: "2026-10-31T12:01:00Z" }],
+      [{ status: "still_running", at: null }],
+      [{ status: "unknown", at: null }],
+      [{ status: "stopped", at: "2026-10-31T12:01:00Z" }],
+    ])("shows each cleanup status the API serves (%o)", (cleanup) => {
+      result = {
+        data: timeline({ workers: [cut(cleanup)] }),
+        isLoading: false,
+        isError: false,
+      };
+      render(<CallWorkersPanel callExecutionId="c1" />);
+      const copy = C.cleanup[cleanup.status];
+      expect(screen.getByTestId("worker-cleanup").textContent).toContain(
+        typeof copy === "function" ? copy("").trim().replace(/,$/, "") : copy,
+      );
+    });
+
+    it("shows no cleanup line on an old record", () => {
+      result = {
+        data: timeline({ workers: [cut(null)] }),
+        isLoading: false,
+        isError: false,
+      };
+      render(<CallWorkersPanel callExecutionId="c1" />);
+      expect(screen.queryByTestId("worker-cleanup")).toBeNull();
+    });
+
+    it("says a call was stopped by the user only when the API says so", () => {
+      result = {
+        data: timeline({ stopped_by_user: true }),
+        isLoading: false,
+        isError: false,
+      };
+      render(<CallWorkersPanel callExecutionId="c1" />);
+      expect(screen.getByTestId("stopped-by-user")).toBeInTheDocument();
+      cleanup();
+      result = { data: TIMELINE, isLoading: false, isError: false };
+      render(<CallWorkersPanel callExecutionId="c1" />);
+      expect(screen.queryByTestId("stopped-by-user")).toBeNull();
+    });
+
+    it("says a stopped call with no evidence was stopped before any participant's work, not that nothing was kept", () => {
+      result = {
+        data: timeline({
+          collection: "no_evidence",
+          events: [],
+          steps: [],
+          stopped_by_user: true,
+        }),
+        isLoading: false,
+        isError: false,
+      };
+      render(<CallWorkersPanel callExecutionId="c1" />);
+      expect(screen.getByText(C.stoppedByUserNoEvidence)).toBeInTheDocument();
+      expect(screen.queryByTestId("stopped-by-user")).toBeNull();
+      expect(screen.queryByText(C.noEvidence)).toBeNull();
     });
   });
 });

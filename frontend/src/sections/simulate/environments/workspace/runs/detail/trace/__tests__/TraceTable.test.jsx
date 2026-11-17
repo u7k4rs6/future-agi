@@ -205,6 +205,13 @@ describe("TraceTable — sub-goal verdicts", () => {
                 subGoalResults: [
                   { name: "pin_verified", passed: true },
                   { name: "exact_greeting", passed: false },
+                  {
+                    name: "read_only",
+                    passed: false,
+                    subject: "worker:order_lookup",
+                    subject_kind: "worker",
+                    worker_id: "order_lookup",
+                  },
                 ],
               },
             ],
@@ -215,7 +222,7 @@ describe("TraceTable — sub-goal verdicts", () => {
     );
     const cells = activeRow().querySelectorAll("td");
     expect(cells[cells.length - 1]).toHaveTextContent(
-      /pin_verified.*exact_greeting/,
+      /pin_verified.*exact_greeting.*read_only \(order_lookup\)/,
     );
   });
 

@@ -54,6 +54,7 @@ class _Place(TypedDict, total=False):
 
     parent_delegation_id: str
     relationship: Literal["observed", "unknown"]
+    launch: Literal["async"]
 
 
 def bounded(events: list[WorkerEvent]) -> tuple[list[WorkerEvent], int]:
@@ -487,6 +488,8 @@ def _put(event: WorkerEvent, place: _Place) -> WorkerEvent:
         event["parent_delegation_id"] = place["parent_delegation_id"]
     if "relationship" in place:
         event["relationship"] = place["relationship"]
+    if "launch" in place:
+        event["launch"] = place["launch"]
     return event
 
 
@@ -649,8 +652,31 @@ def _transfer_event(
     events.append(transferred)
 
 
+def _launched_by(sealed: _SealedRows, shown: dict[int, WorkerEvent]) -> set[int]:
+    """The hand-offs a job made from the coordinator's launching call: rows naming that call as their parent event."""
+    rows = sealed.rows
+    by_event = {
+        str(runtime_ids(row).get("event_id")): index
+        for index, row in enumerate(rows)
+        if runtime_ids(row).get("event_id")
+    }
+    launched: set[int] = set()
+    for index, call in enumerate(rows):
+        launcher = by_event.get(str(runtime_ids(call).get("parent_event_id") or ""))
+        if (
+            launcher is not None
+            and launcher not in shown
+            and index not in shown
+            and str(call.get("delegated_to") or "").strip()
+            and not str(rows[launcher].get("delegated_to") or "").strip()
+            and sealed.placed_in(call).get("relationship") == "unknown"
+        ):
+            launched.add(index)
+    return launched
+
+
 def _hand_off_events(
-    sealed: _SealedRows, index: int, events: list[WorkerEvent]
+    sealed: _SealedRows, index: int, events: list[WorkerEvent], *, launched: bool
 ) -> None:
     """A hand-off: the call that gave the work, and its result when the worker returned."""
     call = sealed.rows[index]
@@ -672,7 +698,8 @@ def _hand_off_events(
                 "attribution": "reported",
                 "row": index,
             },
-            sealed.placed_in(call),
+            # Made by the coordinator's launching call, so its place is known; the job outlives that call.
+            {"launch": "async"} if launched else sealed.placed_in(call),
         )
     )
     if epoch_iso(call.get("ended_at")):
@@ -705,6 +732,9 @@ def _tool_call_event(sealed: _SealedRows, index: int) -> WorkerEvent:
         "attribution": "reported",
         "row": index,
     }
+    if call.get("refusal_code"):
+        # Why the world refused it, as its action log coded it.
+        event["refusal_code"] = str(call["refusal_code"])
     _call_place(event, sealed.placed_in(call))
     for _key, flag in PAYLOADS:
         if call.get(flag):
@@ -786,13 +816,14 @@ def worker_timeline(
     shown = shown_by_spans(events, matched)
     top_names = tree.top_names(sealed.handed)
     _apply_shown(sealed, shown, events, {slug(name) for name in top_names})
+    launched = _launched_by(sealed, shown)
     for index, call in enumerate(sealed.rows):
         if (not by_of(call) and not call.get("delegated_to")) or index in shown:
             continue
         if index in sealed.transfers:
             _transfer_event(sealed, index, events, hand_off_ids)
         elif str(call.get("delegated_to") or "").strip():
-            _hand_off_events(sealed, index, events)
+            _hand_off_events(sealed, index, events, launched=index in launched)
         else:
             events.append(_tool_call_event(sealed, index))
     # A top-level agent span the rows show being handed work is a worker whose launcher this read lacks.

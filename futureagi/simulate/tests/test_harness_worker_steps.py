@@ -1,6 +1,10 @@
 from datetime import UTC, datetime
 
-from simulate.services.harness_worker_steps import served_record, worker_steps
+from simulate.services.harness_worker_steps import (
+    failure_placements,
+    served_record,
+    worker_steps,
+)
 
 
 def at(second):
@@ -364,6 +368,7 @@ class TestWorkerSteps:
         result = worker_steps([])
         assert (result["steps"], result["turns"], result["depth"]) == ([], [], 0)
         assert result["counts"]["hand_offs"] == 0 and not result["beyond_boundary"]
+        assert result["asynchronous"] == 0
 
     def test_a_return_without_an_id_is_never_given_to_the_hand_off_still_open(
         self,
@@ -823,6 +828,39 @@ def test_a_hand_off_recorded_inside_one_that_opens_later_sits_under_it():
     assert steps[2]["parent"] == 1
 
 
+def test_background_hand_offs_are_counted_as_asynchronous():
+    from simulate.services.harness_worker_steps import worker_steps
+
+    events = [
+        {
+            "seq": 0,
+            "type": "delegated",
+            "worker_id": "r/researcher",
+            "delegation_id": "d1",
+            "launch": "async",
+            "at": "2026-11-15T10:00:01",
+            "attribution": "reported",
+        },
+        {
+            "seq": 1,
+            "type": "delegated",
+            "worker_id": "r/coder",
+            "delegation_id": "d2",
+            "at": "2026-11-15T10:00:02",
+            "attribution": "reported",
+        },
+        {
+            "seq": 2,
+            "type": "returned",
+            "worker_id": "r/coder",
+            "delegation_id": "d2",
+            "at": "2026-11-15T10:00:03",
+            "attribution": "reported",
+        },
+    ]
+    assert worker_steps(events)["asynchronous"] == 1
+
+
 class TestWorkerRecordAsServed:
     def test_a_hand_off_that_never_returned_reads_no_return_unless_the_record_was_cut(
         self,
@@ -984,6 +1022,37 @@ class TestWorkerRecordAsServed:
         assert served_record(record, before)["pending"] is True
         assert served_record(record, long_after)["pending"] is False
 
+    def test_only_a_hand_off_that_never_came_back_takes_the_worker_s_end(self):
+        def worker(state):
+            return {
+                "worker_id": "searcher",
+                "id": "searcher",
+                "name": "S",
+                "state": state,
+            }
+
+        record = {
+            "workers": [worker("cancelled")],
+            "events": [HOTELS, answer(3, "A", "three"), FLIGHTS],
+            "events_omitted": 0,
+            "coordinator": None,
+            "spans_received": True,
+            "started_at": None,
+        }
+        now = datetime(2026, 11, 2, tzinfo=UTC)
+        served = served_record(record, now)
+        assert [one.get("end_state") for one in handoffs(served["steps"])] == [
+            None,
+            "cancelled",
+        ]
+        assert served["workers"][0]["cut_short"] is True
+        assert served["workers"][0]["past_deadline"] is False
+        # Past its deadline the world refused its later calls; it was not stopped, so it is not cut short.
+        late = served_record({**record, "workers": [worker("deadline_passed")]}, now)
+        assert late["workers"][0]["cut_short"] is False
+        assert late["workers"][0]["past_deadline"] is True
+        assert handoffs(late["steps"])[1]["end_state"] == "deadline_passed"
+
     def test_a_pending_record_says_when_to_read_again_and_never_a_time_already_past(
         self,
     ):
@@ -1002,3 +1071,116 @@ class TestWorkerRecordAsServed:
         assert served_record(record, before)["next_read_at"] == record["next_read_at"]
         again = datetime.fromisoformat(served_record(record, queued)["next_read_at"])
         assert again > queued
+
+
+class TestFailurePlacements:
+    SEARCHER = {"worker_id": "r/searcher", "id": "searcher", "name": "S"}
+
+    def steps(self, *events):
+        return worker_steps([{**one, "worker_id": "r/searcher"} for one in events])[
+            "steps"
+        ]
+
+    def own_check(self):
+        return {
+            "name": "read_only",
+            "passed": False,
+            "subject_kind": "worker",
+            "worker_id": "searcher",
+        }
+
+    def test_a_task_check_is_never_tied_to_a_step_by_its_name(self):
+        # Named after a tool that failed in the call: still not tied, since nothing recorded says it is about it.
+        named, judged = failure_placements(
+            [
+                {"name": "call_book", "passed": False, "subject_kind": "task"},
+                {
+                    "name": "explained",
+                    "passed": None,
+                    "result": "inconclusive",
+                    "subject_kind": "task",
+                },
+            ],
+            self.steps(HOTELS),
+            [self.SEARCHER],
+        )
+        assert (named["step"], named["untied"], named["worker_id"]) == (
+            None,
+            "no_moment",
+            None,
+        )
+        assert (judged["step"], judged["untied"], judged["status"]) == (
+            None,
+            "no_moment",
+            "inconclusive",
+        )
+
+    def test_a_passed_or_not_applicable_check_is_not_placed(self):
+        assert not failure_placements(
+            [
+                {"name": "call_book", "passed": True, "subject_kind": "task"},
+                {
+                    "name": "x",
+                    "passed": None,
+                    "result": "not_applicable",
+                    "subject_kind": "task",
+                },
+            ],
+            self.steps(HOTELS),
+            [self.SEARCHER],
+        )
+
+    def test_a_worker_s_failed_check_sits_on_its_one_hand_off(self):
+        steps = self.steps(HOTELS, answer(2, "A", "two"))
+        [placed] = failure_placements([self.own_check()], steps, [self.SEARCHER])
+        [hand_off] = handoffs(steps)
+        assert (placed["worker_id"], placed["step"], placed["untied"]) == (
+            "r/searcher",
+            hand_off["key"],
+            None,
+        )
+
+    def test_a_worker_s_check_with_several_hand_offs_or_none_is_on_no_step(self):
+        several = self.steps(HOTELS, FLIGHTS)
+        [placed] = failure_placements([self.own_check()], several, [self.SEARCHER])
+        assert (placed["step"], placed["untied"]) == (None, "several_hand_offs")
+        [unseen] = failure_placements([self.own_check()], [], [self.SEARCHER])
+        assert (unseen["step"], unseen["untied"]) == (None, "no_hand_off")
+
+
+def test_a_failed_worker_check_is_served_failed_on_its_worker_beside_a_passing_task_check():
+    record = {
+        "workers": [
+            {"worker_id": "r/order_lookup", "id": "order_lookup", "name": "Lookup"},
+            {"worker_id": "r/refund", "id": "refund", "name": "Refund"},
+        ],
+        "events": [],
+        "events_omitted": 0,
+        "coordinator": None,
+        "spans_received": True,
+        "started_at": None,
+    }
+    served = served_record(
+        record,
+        datetime(2026, 11, 2, tzinfo=UTC),
+        [
+            {"name": "refund_issued", "passed": True, "subject_kind": "task"},
+            {
+                "name": "read_only",
+                "passed": False,
+                "subject_kind": "worker",
+                "worker_id": "order_lookup",
+            },
+        ],
+    )
+    lookup, refund = served["workers"]
+    # The call's own check passed; the worker's failure is still served, failed and named by its worker.
+    assert lookup["checks"] == [{"name": "read_only", "passed": False}]
+    assert refund["checks"] == []
+    [placed] = served["placements"]
+    # Named by the record's worker id, the one its steps and workers carry.
+    assert (placed["name"], placed["status"], placed["worker_id"]) == (
+        "read_only",
+        "failed",
+        "r/order_lookup",
+    )

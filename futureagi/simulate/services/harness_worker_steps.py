@@ -7,18 +7,26 @@ import re
 from bisect import bisect_right
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
+from typing import cast
 
+from simulate.services.harness_worker_states import CUT_SHORT_STATES
 from simulate.services.harness_workers import check_again_at, read_pending
 from simulate.types import (
     CallTurn,
     CallWorkersRecord,
+    FailurePlacement,
     HandOffCounts,
     HandOffEnd,
+    HarnessWorker,
+    PlacementStatus,
     ShownText,
+    SubGoalEntry,
     TurnSummary,
+    WorkerCheck,
     WorkerEvent,
     WorkerRelationship,
     WorkersState,
+    WorkerState,
     WorkerStep,
     WorkerSteps,
     WorkerTimeline,
@@ -475,25 +483,92 @@ def worker_steps(
             depth_of.setdefault(block.worker_id, block.depth)
     depth = max((block.depth for block in blocks), default=0)
     parallel = sum(1 for block in blocks if block.parallel)
+    # Hand-offs to background jobs, which outlive the call that launched them.
+    asynchronous = sum(
+        1
+        for block in blocks
+        if block.handoff is not None and block.handoff.get("launch") == "async"
+    )
     return {
         "steps": steps,
         "turns": rounds,
         "depth": depth,
         "parallel": parallel,
+        "asynchronous": asynchronous,
         "overlap_unknown": overlap_unknown,
         "worker_depths": depth_of,
         "counts": _counts(steps),
         "cut_off": cut_off,
-        # The supported boundary is one level of sequential hand-offs from the coordinator.
-        "beyond_boundary": depth > 1 or parallel > 0,
+        # The supported boundary is one level of sequential hand-offs from the coordinator, each back within the call.
+        "beyond_boundary": depth > 1 or parallel > 0 or asynchronous > 0,
     }
 
 
+def _with_ends(
+    steps: list[WorkerStep], workers: Iterable[Mapping[str, object]]
+) -> None:
+    """Each hand-off that did not come back takes its worker's end state when the trial's end cut it short."""
+    states = {str(one.get("worker_id")): one.get("state") for one in workers}
+    for step in steps:
+        state = states.get(str(step["worker_id"]))
+        if step.get("end") in ("no_return", "cut_off") and state in CUT_SHORT_STATES:
+            step["end_state"] = cast("WorkerState", state)
+
+
+def failure_placements(
+    sub_goals: Iterable[SubGoalEntry],
+    steps: Iterable[WorkerStep],
+    workers: Iterable[HarnessWorker],
+) -> list[FailurePlacement]:
+    """Each failed or unsure sub-goal. A worker's own check sits on that worker's hand-off when it had exactly one;
+    a task check is on no step, as nothing records which moment it judged. A check's name is never read for one."""
+    record_id = {one["id"]: one["worker_id"] for one in workers}
+    hand_offs: dict[str | None, list[int]] = {}
+    for step in steps:
+        if step["kind"] == "handoff":
+            hand_offs.setdefault(step["worker_id"], []).append(step["key"])
+    placements: list[FailurePlacement] = []
+    for goal in sub_goals:
+        status: PlacementStatus
+        if goal["passed"] is False:
+            status = "failed"
+        elif goal.get("result") == "inconclusive":
+            status = "inconclusive"
+        else:
+            continue
+        placement: FailurePlacement = {
+            "name": goal["name"],
+            "status": status,
+            "step": None,
+            "worker_id": None,
+            "untied": "no_moment",
+        }
+        if "worker_id" in goal:
+            worker = record_id.get(goal["worker_id"], goal["worker_id"])
+            keys = hand_offs.get(worker, [])
+            placement["worker_id"] = worker
+            placement["step"] = keys[0] if len(keys) == 1 else None
+            placement["untied"] = (
+                None
+                if len(keys) == 1
+                else "several_hand_offs"
+                if keys
+                else "no_hand_off"
+            )
+        placements.append(placement)
+    return placements
+
+
 def served_record(
-    timeline: WorkerTimeline, now: datetime, *, state: WorkersState = "recorded"
+    timeline: WorkerTimeline,
+    now: datetime,
+    sub_goals: Iterable[SubGoalEntry] = (),
+    *,
+    stopped_by_user: bool = False,
+    state: WorkersState = "recorded",
 ) -> CallWorkersRecord:
-    """A kept record as the client reads it, old records included: its steps, times with their zone, and whether a
-    later read is still due."""
+    """A kept record as the client reads it, old records included: its steps, each worker's end, where each failed
+    check sits, times with their zone, and whether a later read is still due."""
     cut_off = bool(timeline.get("events_omitted")) or timeline.get("collection") in (
         "partial",
         "unavailable",
@@ -504,11 +579,35 @@ def served_record(
         turns_cut=bool(timeline.get("messages_omitted")),
         cut_off=cut_off,
     )
+    _with_ends(steps["steps"], timeline["workers"])
+    goals = list(sub_goals)
+    # A worker's own checks sit beside the call's verdict and never decide it, so each is served on its worker.
+    checks: dict[str, list[WorkerCheck]] = {}
+    for goal in goals:
+        if "worker_id" in goal:
+            check: WorkerCheck = {"name": goal["name"], "passed": goal["passed"]}
+            if goal["passed"] is None:
+                # Neither passed nor failed: why, and unmeasured when the receipt gave no reason.
+                check["result"] = goal.get("result", "unmeasured")
+            checks.setdefault(goal["worker_id"], []).append(check)
+    workers: list[HarnessWorker] = []
+    for one in timeline["workers"]:
+        shown = one.copy()
+        shown["checks"] = checks.get(one["id"], [])
+        # Past its deadline is told apart: the world refused its later calls, it was not stopped.
+        shown["past_deadline"] = one.get("state") == "deadline_passed"
+        shown["cut_short"] = (
+            one.get("state") in CUT_SHORT_STATES and not shown["past_deadline"]
+        )
+        workers.append(shown)
     due = timeline.get("next_read_at")
     pending = read_pending(due, now)
     served: CallWorkersRecord = {
         **timeline,
         **steps,
+        "workers": workers,
+        "placements": failure_placements(goals, steps["steps"], timeline["workers"]),
+        "stopped_by_user": stopped_by_user,
         "events": [_served(one) for one in timeline.get("events", [])],
         "started_at": _aware(timeline.get("started_at")),
         "pending": pending,

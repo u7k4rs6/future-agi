@@ -9,16 +9,24 @@ from typing import Any, Literal, NotRequired, TypedDict, cast
 
 import structlog
 
+from simulate.constants.hosted_harness import TRIAL_STATE_KEY
 from simulate.models import CallExecution, HostedHarnessArtifact
 from simulate.models.test_execution import CallExecutionSnapshot
 from simulate.services.harness_actor_labels import FallbackView, fallback_of
+from simulate.services.harness_worker_states import stopped_workers_of
 from simulate.services.hosted_harness_ingestion import (
-    TRIAL_STATE_KEY,
     UPLOAD_BUCKET_NAME,
     get_object_url,
 )
 from simulate.services.run_results_v3 import recorded_calls
 from simulate.services.run_results_v3_queries import call_actor_delivery
+from simulate.types import (
+    SharedRecord,
+    SharedRecordAction,
+    SharedRecordTruncation,
+    StoppedWorker,
+    worker_subject_id,
+)
 from simulate.utils.stored_transcript_roles import call_actor_label
 
 logger = structlog.get_logger(__name__)
@@ -87,6 +95,12 @@ class BlockedCall(TypedDict, total=False):
 APPROVAL_MISSING = "approval_missing"
 
 
+class RefusedAction(TypedDict):
+    action: str
+    code: str
+    reason: str
+
+
 class StateChange(TypedDict, total=False):
     """What one participant attempted in the trial and what the world made of it, as the harness counts it."""
 
@@ -102,6 +116,9 @@ class StateChange(TypedDict, total=False):
     read_actions: list[str]
     no_change: bool
     blocked: list[BlockedCall]
+    refused_actions: list[RefusedAction]
+    # The worker this participant is, when it is one of the agent's workers.
+    worker_id: str
 
 
 class ActorDecision(TypedDict):
@@ -203,6 +220,8 @@ class TrialNotice(TypedDict, total=False):
     on_call: int | None
     mode: str | None
     count: int
+    # The workers a notice names, e.g. a separate worker that reached the world without its own channel.
+    workers: list[str]
 
 
 class TrialStart(TypedDict, total=False):
@@ -242,6 +261,11 @@ class TrialState(TypedDict):
     usage_total: NotRequired[UsageTotal]
     limits: NotRequired[dict[str, int | float | str | None]]
     end_state_url: NotRequired[str]
+    # A multi-agent trial's records two or more participants named, and the workers the harness stopped.
+    shared_records: NotRequired[list[SharedRecord]]
+    # As the harness sealed it; None for a trial sealed before it said which bound was reached.
+    shared_records_truncated: NotRequired[bool | None]
+    stopped_workers: NotRequired[list[StoppedWorker]]
 
 
 def call_actors(metadata: object) -> list[dict[str, str]]:
@@ -870,6 +894,17 @@ def _approval_notices(calls: Sequence[Mapping[str, Any]]) -> list[TrialNotice]:
     ]
 
 
+def _state_change(entry: dict[str, Any]) -> StateChange:
+    change = cast(
+        StateChange,
+        {**entry, "name": AGENT_NAME} if entry.get("who") == AGENT else dict(entry),
+    )
+    worker = worker_subject_id(entry.get("who"))
+    if worker is not None:
+        change["worker_id"] = worker
+    return change
+
+
 def trial_state(
     call: CallExecution,
     *,
@@ -894,13 +929,7 @@ def trial_state(
     raw_records = state.get("records")
     records = raw_records if isinstance(raw_records, dict) else {}
     unreadable = state.get("unreadable") is True or records.get("unreadable") is True
-    changes = [
-        cast(
-            StateChange,
-            {**one, "name": AGENT_NAME} if one.get("who") == AGENT else one,
-        )
-        for one in _entries(state.get("state_changes"))
-    ]
+    changes = [_state_change(one) for one in _entries(state.get("state_changes"))]
     decisions = _entries(state.get("decisions"))
     names = {
         one["id"]: one["name"]
@@ -959,10 +988,52 @@ def trial_state(
         shown["usage_total"] = total
     if isinstance(state.get("limits"), dict):
         shown["limits"] = state["limits"]
+    if isinstance(state.get("shared_records"), list):
+        shared = _entries(state["shared_records"])
+        shown["shared_records"] = [_shared_record(one, names) for one in shared]
+        shown["shared_records_truncated"] = _sealed_flag(
+            state, "shared_records_truncated"
+        )
+    if isinstance(state.get("stopped_workers"), list):
+        shown["stopped_workers"] = stopped_workers_of(state)
     url = _end_state_url(call, metadata, state)
     if url:
         shown["end_state_url"] = url
     return shown
+
+
+def _shared_record(record: Mapping[str, Any], names: Mapping[str, str]) -> SharedRecord:
+    """A record two or more participants named, each call with its participant's name as the state changes give it."""
+    actions = [
+        cast(
+            SharedRecordAction,
+            {**one, "name": names.get(str(one.get("who")), str(one.get("who") or ""))},
+        )
+        for one in _entries(record.get("actions"))
+    ]
+    shared = cast(SharedRecord, {**record, "actions": actions})
+    shared["actions_truncated"] = _sealed_flag(record, "actions_truncated")
+    shared["truncation"] = _shared_record_truncation(
+        shared["actions_truncated"], record.get("truncated") is True
+    )
+    return shared
+
+
+def _shared_record_truncation(
+    actions_truncated: bool | None, truncated: bool
+) -> SharedRecordTruncation | None:
+    """Which bound cut a shared record: its own actions, the trial's list of records, or not known on an older trial."""
+    if actions_truncated:
+        return "actions"
+    if not truncated:
+        return None
+    return "unknown" if actions_truncated is None else "records"
+
+
+def _sealed_flag(sealed: Mapping[str, Any], key: str) -> bool | None:
+    """A truncation flag as the harness sealed it; None when the trial predates it, never guessed from its bounds."""
+    value = sealed.get(key)
+    return value if isinstance(value, bool) else None
 
 
 class EarlierAttempt(TypedDict):

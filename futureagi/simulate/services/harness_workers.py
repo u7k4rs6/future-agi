@@ -10,10 +10,21 @@ from uuid import UUID
 import structlog
 from django.utils import timezone
 
-from simulate.models import CallExecution, CallTranscript, HostedHarnessJob
+from simulate.models import (
+    CallExecution,
+    CallTranscript,
+    HostedHarnessJob,
+)
 from simulate.models.chat_message import ChatMessageModel
 from simulate.models.test_execution import CallExecutionSnapshot
 from simulate.services.harness_worker_events import recorded_timeline
+from simulate.services.harness_worker_states import (
+    deadline_refused,
+    job_for_call,
+    stopped_workers,
+    trial_ending,
+    worker_states,
+)
 from simulate.services.harness_worker_text import digest, utc_iso
 from simulate.services.harness_worker_timeline import HAND_OFF_TYPES, bounded, in_order
 from simulate.services.run_traces_v3 import list_run_traces
@@ -315,6 +326,8 @@ def with_later_read(
         any(not one["observed"] for one in record["workers"])
         or not record.get("tree_complete", True)
         or record.get("collection") in ("partial", "unavailable")
+        # A record built from the sandbox's rows alone still meets the spans that arrive later.
+        or not record.get("spans_received", True)
     ):
         record["next_read_at"] = (now + timedelta(seconds=SECOND_READ)).isoformat()
     return record
@@ -375,9 +388,7 @@ def record_call_workers(
         or one.get("delegated_to")
         or one.get("worker_events")
     ]
-    job = HostedHarnessJob.no_workspace_objects.filter(
-        test_execution=call.test_execution
-    ).first()
+    job = job_for_call(call)
     declared = declared_workers(job) if job is not None else []
     # A declared team with no evidence is still recorded, so the call never reads like a single-agent one.
     if traces.project_id is None and not traced_calls and not declared:
@@ -418,13 +429,18 @@ def record_call_workers(
             spans = _begun_after(spans, since)
         if len(spans) > MAX_SPANS:
             spans, partial = spans[:MAX_SPANS], True
-    timeline = recorded_timeline(
-        [_span_dict(one) for one in spans],
-        declared,
-        run_key=str(job.run_id) if job is not None else str(call.test_execution_id),
-        traced_calls=traced_calls,
-        turns=_call_turns(call, sealed),
-        started_at=_call_start(call, sealed),
+    timeline = worker_states(
+        recorded_timeline(
+            [_span_dict(one) for one in spans],
+            declared,
+            run_key=str(job.run_id) if job is not None else str(call.test_execution_id),
+            traced_calls=traced_calls,
+            turns=_call_turns(call, sealed),
+            started_at=_call_start(call, sealed),
+        ),
+        trial=trial_ending(call, job),
+        past_deadline=deadline_refused(call),
+        stopped=stopped_workers(call),
     )
     now = timezone.now()
     timeline["collected_at"] = now.isoformat()

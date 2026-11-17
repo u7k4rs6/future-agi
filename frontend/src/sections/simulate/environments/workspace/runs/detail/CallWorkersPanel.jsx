@@ -8,7 +8,9 @@ import {
   Typography,
 } from "@mui/material";
 import { useCallWorkers } from "src/api/simulate-environments/runDetail";
+import { fDateTime } from "src/utils/format-time";
 import { CALL_WORKERS_COPY as C } from "./callTraces.constants";
+import { PlacedChecks, WorkerChecks } from "./CallWorkersChecks";
 import { EventList } from "./CallWorkersEventList";
 import { Turn } from "./CallWorkersParts";
 import { WorkersTable } from "./CallWorkersTable";
@@ -55,6 +57,11 @@ export default function CallWorkersPanel({
   };
   const start = data.started_at;
   const byKey = stepsByKey(data);
+  // Each failed or unsure check the API places on a step, shown on that step's row.
+  const placedOn = {};
+  data.placements.forEach((one) => {
+    if (one.step !== null) (placedOn[one.step] ||= []).push(one);
+  });
   const handOffs = data.counts.hand_offs;
   // With no hand-off there is nothing to tabulate, so the steps are the whole story.
   const showSteps = rawEvents || !handOffs;
@@ -68,7 +75,27 @@ export default function CallWorkersPanel({
       .map((one) => one.name)
       .join(", ");
   const notObserved = named((one) => !one.observed);
+  const pastDeadline = named((one) => one.past_deadline);
+  const cutShort = data.workers
+    .filter((one) => one.cut_short)
+    .map((one) => `${one.name} (${C.cutShort[one.state]})`)
+    .join(", ");
   const notDeclared = named((one) => one.undeclared);
+  // A cut-short worker's cleanup, as the API computed it when served; an old record has none.
+  const cleanups = data.workers
+    .filter((one) => one.cleanup && C.cleanup[one.cleanup.status])
+    .map((one) => {
+      const copy = C.cleanup[one.cleanup.status];
+      return {
+        id: one.worker_id,
+        text: C.workerCleanup(
+          one.name,
+          typeof copy === "function"
+            ? copy(one.cleanup.at ? fDateTime(one.cleanup.at) : "")
+            : copy,
+        ),
+      };
+    });
 
   return (
     <Stack spacing={1.25} sx={{ p: 1.5 }}>
@@ -91,9 +118,19 @@ export default function CallWorkersPanel({
           />
         </Stack>
       ) : null}
+      {data.stopped_by_user &&
+      data.collection !== "no_evidence" &&
+      data.events.length > 0 ? (
+        <Typography
+          data-testid="stopped-by-user"
+          sx={{ typography: "s3", color: "text.subtitle" }}
+        >
+          {C.stoppedByUser}
+        </Typography>
+      ) : null}
       {data.collection === "no_evidence" ? (
         <Typography sx={{ typography: "s3", color: "text.subtitle" }}>
-          {C.noEvidence}
+          {data.stopped_by_user ? C.stoppedByUserNoEvidence : C.noEvidence}
         </Typography>
       ) : data.collection === "partial" || data.collection === "unavailable" ? (
         <Typography sx={{ typography: "s3", color: "text.subtitle" }}>
@@ -104,6 +141,17 @@ export default function CallWorkersPanel({
       ) : data.spans_received === false ? (
         <Typography sx={{ typography: "s3", color: "text.subtitle" }}>
           {C.sandboxOnly}
+        </Typography>
+      ) : null}
+      {data.workers.length ? (
+        <Typography
+          data-testid="supported-boundary"
+          sx={{ typography: "s3", color: "text.subtitle" }}
+        >
+          {C.supportedBoundary}
+          {data.beyond_boundary ? (
+            <span data-testid="beyond-boundary"> {C.beyondBoundary}</span>
+          ) : null}
         </Typography>
       ) : null}
       {showSteps ? (
@@ -136,6 +184,7 @@ export default function CallWorkersPanel({
                   rows={roundRows}
                   byKey={byKey}
                   names={names}
+                  placedOn={placedOn}
                   start={start}
                   onOpenTrace={onOpenTrace}
                   traceIds={traceIds}
@@ -159,11 +208,36 @@ export default function CallWorkersPanel({
           );
         })
       )}
+      {data.workers.some((one) => one.checks.length) ? (
+        <WorkerChecks workers={data.workers} />
+      ) : null}
+      {data.placements.length ? (
+        <PlacedChecks placements={data.placements} names={names} />
+      ) : null}
       {notObserved ? (
         <Typography sx={{ typography: "s3", color: "text.subtitle" }}>
           {C.workersNotObserved(notObserved)}
         </Typography>
       ) : null}
+      {cutShort ? (
+        <Typography sx={{ typography: "s3", color: "text.subtitle" }}>
+          {C.workersCutShort(cutShort)}
+        </Typography>
+      ) : null}
+      {pastDeadline ? (
+        <Typography sx={{ typography: "s3", color: "text.subtitle" }}>
+          {C.workersPastDeadline(pastDeadline)}
+        </Typography>
+      ) : null}
+      {cleanups.map((one) => (
+        <Typography
+          key={one.id}
+          data-testid="worker-cleanup"
+          sx={{ typography: "s3", color: "text.subtitle" }}
+        >
+          {one.text}
+        </Typography>
+      ))}
       {notDeclared ? (
         <Typography sx={{ typography: "s3", color: "text.subtitle" }}>
           {C.workersNotDeclared(notDeclared)}
