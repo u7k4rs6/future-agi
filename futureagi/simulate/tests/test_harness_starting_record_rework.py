@@ -249,7 +249,7 @@ def test_the_served_state_follows_the_builder_s_turn(
         # The line is a short sentence of the server's own; the builder's words come whole, to show apart.
         assert (
             rework["reason"]
-            == "The builder says this scenario can't start from users rdr_priya as seeded."
+            == "The builder didn't rework this scenario to start from users rdr_priya. See its reply."
         )
         assert rework["builder_reply"] == reply and rework["reply_message_id"]
 
@@ -420,15 +420,74 @@ def test_a_rework_waiting_on_the_person_says_so_with_the_chat_message_that_asks(
         blocking_input={"message_id": str(asked.id), "kind": "confirmation_requested"},
     )
 
-    waiting = auth_client.get(_url(environment)).json()["rework"]
+    served = auth_client.get(_url(environment)).json()
+    waiting = served["rework"]
     assert (waiting["state"], waiting["confirm_message_id"]) == (
         "waiting",
         str(asked.id),
+    )
+    # No other record can be asked for while the builder waits on the person, and the panel is told why.
+    assert (served["can_rework"], served["rework_blocked_reason"]) == (
+        False,
+        "The builder is waiting for you to confirm its change.",
     )
 
     # Answered, the builder works on: no longer waiting on the person.
     HostedHarnessConversation.no_workspace_objects.filter(
         id=message.conversation_id
     ).update(state=HostedHarnessConversation.State.RESPONDING, blocking_input=None)
-    working = auth_client.get(_url(environment)).json()["rework"]
+    served = auth_client.get(_url(environment)).json()
+    working = served["rework"]
     assert (working["state"], working["confirm_message_id"]) == ("pending", None)
+    assert served["can_rework"] is False
+
+    # Done, another record can be asked for.
+    _turn_ends(environment, message, outcome="failure")
+    assert auth_client.get(_url(environment)).json()["can_rework"] is True
+
+
+def test_a_row_another_scenario_starts_from_is_offered_with_a_note_and_left_to_the_builder(
+    user, workspace, storage, auth_client
+):
+    from simulate.services.harness_versioning.versions import record_authoring
+    from simulate.tests.test_harness_starting_records import CONTRACT, SCENARIO, STORE
+    from simulate.tests.test_harness_versioning_record import _authoring, _scenario
+
+    OTHER = "priya-asks-for-her-refund"
+    environment = _rides(user, workspace, storage, "rework-taken")
+    mine = _scenario(SCENARIO, fixture=FIXTURE)
+    theirs = _scenario(
+        OTHER,
+        fixture={
+            **FIXTURE,
+            "identity": {"rider_id": "rdr_priya", "first_name": "Priya"},
+        },
+    )
+    record_authoring(
+        environment,
+        _authoring(
+            names=[SCENARIO, OTHER],
+            contract=CONTRACT,
+            **{
+                "scenarios.json": json.dumps([mine, theirs]),
+                f"scenarios/{SCENARIO}/scenario.json": json.dumps(mine),
+                f"scenarios/{OTHER}/scenario.json": json.dumps(theirs),
+                "store.json": json.dumps(STORE),
+            },
+        ),
+        origin="manual",
+        user=user,
+    )
+
+    [rider] = [
+        one
+        for one in auth_client.get(_url(environment)).json()["records"]
+        if one["path"] == ["identity", "rider_id"]
+    ]
+    [priya] = [one for one in rider["choices"] if one["key"] == "rdr_priya"]
+    asked = _rework(auth_client, environment)
+
+    # Two scenarios may share a row with different callers: the builder applies its caller rule.
+    assert OTHER in priya["note"]
+    assert asked.status_code == 202, asked.content
+    assert _requests(environment).count() == 1

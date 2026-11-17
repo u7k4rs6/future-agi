@@ -136,8 +136,6 @@ from simulate.serializers.test_execution import (
     TestExecutionSerializer,
     TestExecutionStatusSerializer,
 )
-
-# Import Temporal activities (using @temporal_activity drop-in decorator)
 from simulate.services.agent_definition import resolve_api_key_for_version
 from simulate.services.call_rerun import (
     call_snapshot,
@@ -169,6 +167,9 @@ from simulate.services.run_regrade import (
     regrade_run_evals,
     regrade_still_finishing,
 )
+
+# Import Temporal activities (using @temporal_activity drop-in decorator)
+from simulate.services.run_reliability_v3 import trial_passes
 from simulate.services.test_executor import (
     TestExecutor,
     _run_simulate_evaluations_task,
@@ -5737,6 +5738,7 @@ class RunTestExecutionsView(APIView):
             receipt_outcomes = hosted_receipt_outcomes(
                 execution_ids, organization_id=user_organization.id
             )
+            trials = trial_passes(result_page or [])
             agent_turn_counts = {}
             chat_duration_map = {}
             if execution_ids:
@@ -5961,6 +5963,7 @@ class RunTestExecutionsView(APIView):
                                 "failed": failed_calls,
                             },
                         ),
+                        **trials[test_execution.id],
                         **_version_labels(version_labels, test_execution.id),
                     }
                 )

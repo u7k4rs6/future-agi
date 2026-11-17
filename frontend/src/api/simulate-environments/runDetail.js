@@ -228,6 +228,8 @@ export function useRunDetail(
       // The run readiness the run started under, and the cases it held back.
       capabilitySnapshot: execution.capability_snapshot ?? null,
       readinessSelection: execution.readiness_selection ?? null,
+      // Said by the server when the run replayed a build without its environment's actors.
+      buildNotice: execution.build_notice ?? null,
       // A fix's check run: `{ id, label }` of the fix that started it, else null.
       fixRun: execution.fix_run ?? null,
       // How far an interrupted run got and whether it can resume; null when the

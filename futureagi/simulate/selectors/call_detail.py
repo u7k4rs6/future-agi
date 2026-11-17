@@ -12,7 +12,11 @@ import structlog
 from simulate.constants.hosted_harness import TRIAL_STATE_KEY
 from simulate.models import CallExecution, HostedHarnessArtifact
 from simulate.models.test_execution import CallExecutionSnapshot
-from simulate.services.harness_actor_labels import FallbackView, fallback_of
+from simulate.services.harness_actor_labels import (
+    CHAT_CHANNEL,
+    FallbackView,
+    fallback_of,
+)
 from simulate.services.harness_worker_states import stopped_workers_of
 from simulate.services.hosted_harness_ingestion import (
     UPLOAD_BUCKET_NAME,
@@ -21,6 +25,7 @@ from simulate.services.hosted_harness_ingestion import (
 from simulate.services.run_results_v3 import recorded_calls
 from simulate.services.run_results_v3_queries import call_actor_delivery
 from simulate.types import (
+    CallActorDelivery,
     SharedRecord,
     SharedRecordAction,
     SharedRecordTruncation,
@@ -256,6 +261,7 @@ class TrialState(TypedDict):
     notices: list[TrialNotice]
     recorded: NotRequired[bool]
     why: NotRequired[str]
+    why_label: NotRequired[str]
     records: NotRequired[TrialRecords]
     start: NotRequired[TrialStart]
     usage_total: NotRequired[UsageTotal]
@@ -266,6 +272,49 @@ class TrialState(TypedDict):
     # As the harness sealed it; None for a trial sealed before it said which bound was reached.
     shared_records_truncated: NotRequired[bool | None]
     stopped_workers: NotRequired[list[StoppedWorker]]
+
+
+# Why a trial's world actions were not recorded, in the words World state shows; an older record says no reason.
+IN_PROCESS_TOOLS = "in_process_tools"
+NOT_RECORDED_LABELS = {
+    IN_PROCESS_TOOLS: "World state is not recorded for this agent: its tools run inside it, where the test world "
+    "cannot see them.",
+    "sealed_without_door": "This environment was built before world actions were recorded, so this trial's are not "
+    "known. Rebuild it to see them.",
+    "calls_not_seen": "None of the agent's tool calls in this trial reached the test world, so what they changed is "
+    "not known. An environment built before world actions were recorded reads this way; rebuild it to see them.",
+}
+CALLS_NOT_SEEN = "calls_not_seen"
+
+
+def _calls_not_seen(
+    changes: Sequence[Mapping[str, Any]], calls: Sequence[Mapping[str, Any]]
+) -> bool:
+    """Whether the agent called tools in this trial while the world's door recorded nothing of it at all."""
+    agent = [one for one in changes if one.get("who") == AGENT]
+    quiet = bool(agent) and all(
+        not one.get(count)
+        for one in agent
+        for count in (
+            "attempted",
+            "committed",
+            "read",
+            "refused",
+            "faulted",
+            "duplicate",
+        )
+    )
+    return quiet and any(not one.get("handoff") for one in calls)
+
+
+# How far each call actor got, in the words the call shows.
+DELIVERY_LABELS: dict[CallActorDelivery, str] = {
+    "delivered": "Spoke in the call",
+    "acted": "Acted in the world, said no line",
+    "dropped": "Due, but neither spoke nor acted",
+    "not_triggered": "Never came in",
+    "not_drawn": "Not drawn for this call",
+}
 
 
 def call_actors(metadata: object) -> list[dict[str, str]]:
@@ -286,7 +335,16 @@ def call_actors(metadata: object) -> list[dict[str, str]]:
                 if isinstance(one.get(key), str)
             },
             **(
-                {"delivery": deliveries[one["id"]]}
+                {
+                    "delivery": deliveries[one["id"]],
+                    "delivery_label": (
+                        # An actor in the chat wrote its lines rather than spoke them.
+                        "Wrote in the chat"
+                        if deliveries[one["id"]] == "delivered"
+                        and one.get("channel") == CHAT_CHANNEL
+                        else DELIVERY_LABELS[deliveries[one["id"]]]
+                    ),
+                }
                 if one.get("id") in deliveries
                 else {}
             ),
@@ -977,9 +1035,20 @@ def trial_state(
         + _approval_notices(calls)
         + [cast(TrialNotice, one) for one in _entries(state.get("notices"))],
     }
+    if (
+        state.get("recorded") is not False
+        and state.get("door") is not True
+        and _calls_not_seen(changes, calls)
+    ):
+        # A record stored before the harness said whether a door stood, whose agent called tools that never passed
+        # one: its zeros are not "no change", so they are not shown as one. A record a door stood for keeps its counts.
+        state = {**state, "recorded": False, "why": CALLS_NOT_SEEN}
     if state.get("recorded") is False:
         shown["recorded"] = False
         shown["why"] = str(state.get("why") or "")
+        shown["why_label"] = NOT_RECORDED_LABELS.get(
+            shown["why"], NOT_RECORDED_LABELS[IN_PROCESS_TOOLS]
+        )
     if records and not unreadable:
         shown["records"] = _records(records)
     if isinstance(state.get("start"), dict):

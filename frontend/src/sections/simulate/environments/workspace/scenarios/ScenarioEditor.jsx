@@ -1,5 +1,5 @@
 import PropTypes from "prop-types";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Autocomplete,
   Box,
@@ -12,7 +12,12 @@ import {
   ToggleButtonGroup,
 } from "@mui/material";
 
+import { ConfirmDialog } from "src/components/custom-dialog";
 import SideDrawer from "../../components/SideDrawer";
+import {
+  focusBuilderChat,
+  subscribeBuilderChatFocus,
+} from "../../buildEnvironment/console/builderChatFocusBus";
 import { SCENARIO_SHAPE } from "./scenarios.shapes";
 import {
   EDITOR_COPY,
@@ -194,6 +199,26 @@ export default function ScenarioEditor({
       rework: changedFields.some((f) => reworkFields.includes(f)),
     };
   }, [draft, base, canEdit, canEditPersona, reworkFields]);
+
+  // Asked to show a builder chat message, the editor steps aside so the chat can be used; unsaved edits ask first.
+  // The message the chat was asked to show, while the person decides whether to discard their edits.
+  const [leaving, setLeaving] = useState(null);
+  const discarded = useRef(false);
+  const unsaved = changes.length > 0;
+  useEffect(
+    () =>
+      open && onClose
+        ? subscribeBuilderChatFocus((messageId) => {
+            if (discarded.current) return;
+            if (unsaved) setLeaving(messageId);
+            else onClose();
+          })
+        : undefined,
+    [open, onClose, unsaved],
+  );
+  useEffect(() => {
+    if (open) discarded.current = false;
+  }, [open]);
 
   if (!row) return null;
 
@@ -489,6 +514,29 @@ export default function ScenarioEditor({
           </Button>
         </Stack>
       </Stack>
+      <ConfirmDialog
+        open={Boolean(leaving)}
+        onClose={() => setLeaving(null)}
+        title={EDITOR_COPY.discardTitle}
+        content={EDITOR_COPY.discardBody}
+        action={
+          <Button
+            size="small"
+            variant="contained"
+            color="error"
+            onClick={() => {
+              const messageId = leaving;
+              setLeaving(null);
+              discarded.current = true;
+              onClose();
+              // Shown again now the editor is out of the way, as when there was nothing to discard.
+              focusBuilderChat(messageId);
+            }}
+          >
+            {EDITOR_COPY.discard}
+          </Button>
+        }
+      />
     </SideDrawer>
   );
 }
