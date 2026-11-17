@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import axios, { endpoints } from "src/utils/axios";
+import { simulateV3CallExecutionWorkers } from "src/generated/api-contracts/api";
 import { extractKpis } from "src/sections/test-detail/common";
 import { normalizeEvalResult } from "src/sections/develop-detail/DataTab/common";
 import {
@@ -444,6 +445,7 @@ export function functionCallTranscriptRows(calls = []) {
       start_time_seconds: relativeTime(call),
       end_time_seconds: relativeTime(call, true),
       tool_calls: actor ? null : [call],
+      tool_label: actor ? null : call.tool_label,
     };
   });
 }
@@ -602,16 +604,12 @@ export function mapCallDetail(raw) {
     text: messageText(t.content),
     at: t.start_time_seconds ?? null,
     toolCalls: t.tool_calls ?? null,
+    toolLabel: t.tool_label ?? null,
   }));
 
   const words = turns.reduce(
     (a, s) =>
       a + (s.text ? s.text.trim().split(/\s+/).filter(Boolean).length : 0),
-    0,
-  );
-  const toolCalls = turns.reduce(
-    (count, turn) =>
-      count + (Array.isArray(turn.toolCalls) ? turn.toolCalls.length : 0),
     0,
   );
 
@@ -651,7 +649,8 @@ export function mapCallDetail(raw) {
       // No backend field for either — GAP, MockBadged in the drawer.
       silenceS: null,
       ttfwMs: null,
-      toolCalls,
+      // Counted by the API, which leaves out hand-offs to other agents.
+      toolCalls: raw.tool_call_count,
     },
     tokens: raw.total_tokens ?? null,
     cost: raw.cost_cents != null ? raw.cost_cents / 100 : null,
@@ -705,6 +704,42 @@ const traceRow = (raw) => ({
   status: raw.status ?? null,
   latencyMs: raw.latency_ms ?? null,
 });
+
+/** Which of a multi-agent app's workers did what in one call; null when it has no record yet (202) or none (204). */
+export function useCallWorkers(callExecutionId, callStatus = null) {
+  return useQuery({
+    queryKey: ["simulation-call-workers-v3", callExecutionId, callStatus],
+    queryFn: async () => {
+      const response = await simulateV3CallExecutionWorkers(callExecutionId);
+      const record = response.status === 200 ? response.data : null;
+      return {
+        record,
+        // The API says when a read still due may change this answer; the tab reads again once, then.
+        readAgainAt: response.data?.pending ? response.data.next_read_at : null,
+      };
+    },
+    select: (read) => read.record,
+    enabled: !!callExecutionId,
+    retry: false,
+    // The panel says so inline; this tab must not toast about a call the user isn't looking at.
+    meta: { errorHandled: true },
+    refetchInterval: (query) => {
+      const at = query.state.data?.readAgainAt;
+      if (query.state.error || !at) return false;
+      return Math.max(Date.parse(at) - Date.now(), 0);
+    },
+  });
+}
+
+/**
+ * Whether a call has workers to show: false while it has no record (no Participants tab), undefined while unread.
+ * A failed read shows the tab, so the panel can say it couldn't load.
+ */
+export function useHasWorkers(callExecutionId, callStatus = null) {
+  const { data, isError } = useCallWorkers(callExecutionId, callStatus);
+  if (isError) return true;
+  return data === undefined ? undefined : data !== null;
+}
 
 export function useCallTraces(executionId, callExecutionId) {
   const query = useQuery({

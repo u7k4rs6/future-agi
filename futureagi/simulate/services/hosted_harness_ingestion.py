@@ -6,6 +6,7 @@ import logging
 import math
 import re
 import tempfile
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, BinaryIO, cast
 from uuid import UUID
@@ -29,6 +30,7 @@ from simulate.models import (
 )
 from simulate.models.chat_message import ChatMessageModel
 from simulate.services.call_transcripts import SpokenTurn, store_transcript
+from simulate.services.harness_workers import FIRST_READ, attempt_reset, mark_read
 from simulate.services.hosted_harness import (
     HostedHarnessError,
     _resolve_scenario_modality,
@@ -40,7 +42,8 @@ from simulate.services.hosted_harness_validation import (
     receipt_call_times,
     validate_jsonb_strings,
 )
-from simulate.types import CallCallActors
+from simulate.tasks.alk_sim import record_call_workers
+from simulate.types import CallCallActors, CallWorkersRead
 from simulate.utils.test_execution_utils import is_fix_check_run
 from tfc.settings.settings import UPLOAD_BUCKET_NAME
 from tfc.utils.storage_client import get_object_url, get_storage_client
@@ -1144,6 +1147,7 @@ def _apply_receipt_to_call(
         transaction.on_commit(
             lambda: _dispatch_csat_once(CallExecution.objects.get(id=call_id))
         )
+        transaction.on_commit(lambda: _dispatch_worker_read(call_id), robust=True)
         # A hosted receipt never travels the SDK result path, so dispatch here, after commit.
         lookup_failed = False
         try:
@@ -1188,6 +1192,23 @@ def _apply_receipt_to_call(
                 lambda: locked_call_metadata_update(call_id, _mark_eval_side),
                 robust=True,
             )
+
+
+def _dispatch_worker_read(call_id: UUID) -> None:
+    """Read the call's worker timeline once its spans have had time to arrive."""
+    reset = attempt_reset(call_id)
+    # Tied to this attempt, so a rerun before the read runs leaves the new attempt to its own read.
+    read = CallWorkersRead(
+        str(call_id), attempt=reset.isoformat() if reset is not None else ""
+    )
+    try:
+        record_call_workers.apply_async(
+            args=(asdict(read),), start_delay=timedelta(seconds=FIRST_READ)
+        )
+    except Exception:
+        # Said on the call, not dropped: with no read the call would look like one with no other agents.
+        logger.exception("call_workers_read_dispatch_failed for call %s", call_id)
+        mark_read(call_id, failed=True)
 
 
 def _ensure_run_agent_is_voice(job: HostedHarnessJob) -> None:

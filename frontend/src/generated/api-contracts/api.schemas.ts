@@ -28308,6 +28308,11 @@ export interface SimulateRunV3FunctionCallApi {
   on_behalf_of?: string;
   /** agent_call for the agent's own tool call, world_actor_action for an actor's action in the world. */
   kind?: SimulateRunV3FunctionCallApiKind;
+  /**
+   * How the transcript names the agent's call, by what it recorded: a tool call, a hand-off to another agent or a control pass. Absent on a world actor's action.
+   * @minLength 1
+   */
+  tool_label?: string;
 }
 
 /**
@@ -28760,6 +28765,15 @@ export interface TrialStateApi {
   notices: TrialNoticeApi[];
 }
 
+export interface EarlierAttemptApi {
+  /** Its id: `/workers/?attempt=` reads its worker record. */
+  attempt: string;
+  rerun_at: string;
+  /** False when it was snapshotted before attempts kept their worker record and trial state. */
+  kept: boolean;
+  trial_state: TrialStateApi;
+}
+
 export interface CallExecutionV3DetailResponseApi {
   readonly id?: string;
   /** @minLength 1 */
@@ -28909,12 +28923,15 @@ export interface CallExecutionV3DetailResponseApi {
   cost_breakdown_cents: CostBreakdownApi;
   evaluations: SimulateRunV3EvaluationResultApi[];
   function_calls: SimulateRunV3FunctionCallApi[];
+  /** The agent's tool calls, from the tool trace when the call has one, else the transcript; a world actor's action is not one, and a hand-off to another agent is a Participants step, not one of them. */
+  tool_call_count: number;
   call_actors: CallCallActorApi[];
   /** Who else took part: each actor who spoke, in the order they first spoke, then each world actor who acted. Never an actor planned for the call who did not join. */
   participants: CallParticipantApi[];
   /** The simulated person spoke in the call; false when an actor's message or the scenario's task started it and the person never spoke. */
   has_customer: boolean;
   trial_state: TrialStateApi;
+  earlier_attempts: EarlierAttemptApi[];
   /** False when the trial did not start from the seeded records; it is then left out of repeatability, pass^k and run comparisons. */
   comparable: boolean;
   /** @minLength 1 */
@@ -28923,6 +28940,328 @@ export interface CallExecutionV3DetailResponseApi {
   csat_status: CallExecutionV3DetailResponseApiCsatStatus;
   /** @minLength 1 */
   csat_reason: string;
+}
+
+export type CallWorkersResponseApiCollection =
+  (typeof CallWorkersResponseApiCollection)[keyof typeof CallWorkersResponseApiCollection];
+
+export const CallWorkersResponseApiCollection = {
+  complete: "complete",
+  partial: "partial",
+  unavailable: "unavailable",
+  no_evidence: "no_evidence",
+} as const;
+
+export type CallWorkersResponseApiWorkerDepths = { [key: string]: number };
+
+export type CallWorkersResponseApiState =
+  (typeof CallWorkersResponseApiState)[keyof typeof CallWorkersResponseApiState];
+
+export const CallWorkersResponseApiState = {
+  recorded: "recorded",
+  not_kept: "not_kept",
+  unreadable: "unreadable",
+} as const;
+
+export interface CallWorkerApi {
+  /** @minLength 1 */
+  worker_id: string;
+  /** @minLength 1 */
+  id: string;
+  /** @minLength 1 */
+  name: string;
+  observed: boolean;
+  undeclared: boolean;
+  instance_ids: string[];
+  /** @minLength 1 */
+  model?: string;
+  tokens?: number;
+}
+
+export type CallWorkerEventApiType =
+  (typeof CallWorkerEventApiType)[keyof typeof CallWorkerEventApiType];
+
+export const CallWorkerEventApiType = {
+  delegated: "delegated",
+  transferred: "transferred",
+  tool_call: "tool_call",
+  returned: "returned",
+} as const;
+
+export type ShownTextApiFormat =
+  (typeof ShownTextApiFormat)[keyof typeof ShownTextApiFormat];
+
+export const ShownTextApiFormat = {
+  code: "code",
+  text: "text",
+} as const;
+
+export interface ShownTextApi {
+  format: ShownTextApiFormat;
+  /** @minLength 1 */
+  text: string;
+}
+
+export type CallWorkerEventApiStatus =
+  (typeof CallWorkerEventApiStatus)[keyof typeof CallWorkerEventApiStatus];
+
+export const CallWorkerEventApiStatus = {
+  ok: "ok",
+  error: "error",
+} as const;
+
+export type CallWorkerEventApiRelationship =
+  (typeof CallWorkerEventApiRelationship)[keyof typeof CallWorkerEventApiRelationship];
+
+export const CallWorkerEventApiRelationship = {
+  observed: "observed",
+  unknown: "unknown",
+} as const;
+
+export type CallWorkerEventApiAttribution =
+  (typeof CallWorkerEventApiAttribution)[keyof typeof CallWorkerEventApiAttribution];
+
+export const CallWorkerEventApiAttribution = {
+  reported: "reported",
+  unattributed: "unattributed",
+} as const;
+
+/**
+ * Any valid JSON value.
+ */
+export type CallWorkerEventApiInput = { [key: string]: unknown };
+
+/**
+ * Any valid JSON value.
+ */
+export type CallWorkerEventApiOutput = { [key: string]: unknown };
+
+export interface CallWorkerEventApi {
+  seq: number;
+  type: CallWorkerEventApiType;
+  /** @minLength 1 */
+  worker_id: string;
+  /** @minLength 1 */
+  by?: string;
+  /** @minLength 1 */
+  delegation_id?: string;
+  /** @minLength 1 */
+  task?: string;
+  /** @minLength 1 */
+  result?: string;
+  task_shown?: ShownTextApi;
+  result_shown?: ShownTextApi;
+  /** @minLength 1 */
+  tool?: string;
+  status?: CallWorkerEventApiStatus;
+  /** @minLength 1 */
+  span_id?: string;
+  /** @minLength 1 */
+  trace_id?: string;
+  /** Any valid JSON value. */
+  input?: CallWorkerEventApiInput;
+  /** Any valid JSON value. */
+  output?: CallWorkerEventApiOutput;
+  input_omitted?: boolean;
+  output_omitted?: boolean;
+  relationship?: CallWorkerEventApiRelationship;
+  /** @minLength 1 */
+  at: string;
+  attribution: CallWorkerEventApiAttribution;
+}
+
+export interface CallWorkerCoordinatorApi {
+  /** @minLength 1 */
+  name: string;
+}
+
+export type CallWorkerStepApiKind =
+  (typeof CallWorkerStepApiKind)[keyof typeof CallWorkerStepApiKind];
+
+export const CallWorkerStepApiKind = {
+  handoff: "handoff",
+  tool_call: "tool_call",
+} as const;
+
+export type CallWorkerEventOrNullApiType =
+  (typeof CallWorkerEventOrNullApiType)[keyof typeof CallWorkerEventOrNullApiType];
+
+export const CallWorkerEventOrNullApiType = {
+  delegated: "delegated",
+  transferred: "transferred",
+  tool_call: "tool_call",
+  returned: "returned",
+} as const;
+
+export type CallWorkerEventOrNullApiStatus =
+  (typeof CallWorkerEventOrNullApiStatus)[keyof typeof CallWorkerEventOrNullApiStatus];
+
+export const CallWorkerEventOrNullApiStatus = {
+  ok: "ok",
+  error: "error",
+} as const;
+
+export type CallWorkerEventOrNullApiRelationship =
+  (typeof CallWorkerEventOrNullApiRelationship)[keyof typeof CallWorkerEventOrNullApiRelationship];
+
+export const CallWorkerEventOrNullApiRelationship = {
+  observed: "observed",
+  unknown: "unknown",
+} as const;
+
+export type CallWorkerEventOrNullApiAttribution =
+  (typeof CallWorkerEventOrNullApiAttribution)[keyof typeof CallWorkerEventOrNullApiAttribution];
+
+export const CallWorkerEventOrNullApiAttribution = {
+  reported: "reported",
+  unattributed: "unattributed",
+} as const;
+
+/**
+ * Any valid JSON value.
+ */
+export type CallWorkerEventOrNullApiInput = { [key: string]: unknown };
+
+/**
+ * Any valid JSON value.
+ */
+export type CallWorkerEventOrNullApiOutput = { [key: string]: unknown };
+
+export interface CallWorkerEventOrNullApi {
+  seq: number;
+  type: CallWorkerEventOrNullApiType;
+  /** @minLength 1 */
+  worker_id: string;
+  /** @minLength 1 */
+  by?: string;
+  /** @minLength 1 */
+  delegation_id?: string;
+  /** @minLength 1 */
+  task?: string;
+  /** @minLength 1 */
+  result?: string;
+  task_shown?: ShownTextApi;
+  result_shown?: ShownTextApi;
+  /** @minLength 1 */
+  tool?: string;
+  status?: CallWorkerEventOrNullApiStatus;
+  /** @minLength 1 */
+  span_id?: string;
+  /** @minLength 1 */
+  trace_id?: string;
+  /** Any valid JSON value. */
+  input?: CallWorkerEventOrNullApiInput;
+  /** Any valid JSON value. */
+  output?: CallWorkerEventOrNullApiOutput;
+  input_omitted?: boolean;
+  output_omitted?: boolean;
+  relationship?: CallWorkerEventOrNullApiRelationship;
+  /** @minLength 1 */
+  at: string;
+  attribution: CallWorkerEventOrNullApiAttribution;
+}
+
+export type CallWorkerStepApiEnd =
+  (typeof CallWorkerStepApiEnd)[keyof typeof CallWorkerStepApiEnd];
+
+export const CallWorkerStepApiEnd = {
+  finished: "finished",
+  failed: "failed",
+  passed: "passed",
+  no_return: "no_return",
+  cut_off: "cut_off",
+} as const;
+
+export type CallWorkerStepApiRelationship =
+  (typeof CallWorkerStepApiRelationship)[keyof typeof CallWorkerStepApiRelationship];
+
+export const CallWorkerStepApiRelationship = {
+  observed: "observed",
+  unknown: "unknown",
+} as const;
+
+export interface CallWorkerStepApi {
+  kind: CallWorkerStepApiKind;
+  key: number;
+  parent: number;
+  depth: number;
+  /** @minLength 1 */
+  worker_id: string;
+  transfer?: boolean;
+  handoff?: CallWorkerEventOrNullApi;
+  returned?: CallWorkerEventOrNullApi;
+  /** @minLength 1 */
+  started_at?: string;
+  /** @minLength 1 */
+  ended_at?: string;
+  parallel?: boolean;
+  end?: CallWorkerStepApiEnd;
+  did_not_finish?: boolean;
+  first_of_worker?: boolean;
+  children?: number[];
+  call?: CallWorkerEventApi;
+  turn: number;
+  order: number;
+  relationship: CallWorkerStepApiRelationship;
+}
+
+export interface CallWorkerTurnApi {
+  /** @minLength 1 */
+  text: string;
+  /** @minLength 1 */
+  at: string;
+  shown?: ShownTextApi;
+}
+
+export interface CallWorkerRoundApi {
+  turn: number;
+  request: CallWorkerTurnApi;
+  response: CallWorkerTurnApi;
+  children: number[];
+  calls_outside: number;
+  handoffs: number[];
+  expects_messages: boolean;
+}
+
+export interface HandOffCountsApi {
+  hand_offs: number;
+  workers: number;
+  finished: number;
+  did_not_finish: number;
+  passed: number;
+  cut_off: number;
+}
+
+export interface CallWorkersResponseApi {
+  workers: CallWorkerApi[];
+  events: CallWorkerEventApi[];
+  events_omitted?: number;
+  coordinator?: CallWorkerCoordinatorApi;
+  /** @minLength 1 */
+  started_at?: string;
+  spans_received?: boolean;
+  /** @minLength 1 */
+  collected_at: string;
+  collection?: CallWorkersResponseApiCollection;
+  steps: CallWorkerStepApi[];
+  turns: CallWorkerRoundApi[];
+  depth: number;
+  parallel: number;
+  overlap_unknown: boolean;
+  worker_depths: CallWorkersResponseApiWorkerDepths;
+  counts: HandOffCountsApi;
+  cut_off: boolean;
+  beyond_boundary: boolean;
+  pending: boolean;
+  /** @minLength 1 */
+  next_read_at?: string;
+  state: CallWorkersResponseApiState;
+}
+
+export interface CallWorkersPendingApi {
+  pending: boolean;
+  /** @minLength 1 */
+  next_read_at: string;
 }
 
 export type RunDashboardMetricApiUnit =
@@ -44613,6 +44952,13 @@ export type SimulateTestExecutionsPreviewCallsListParams = {
    * Run-test scope selected by the preview. The execution and every signed continuation must belong to this run test.
    */
   run_test_id: string;
+};
+
+export type SimulateV3CallExecutionWorkersParams = {
+  /**
+   * An earlier attempt's rerun snapshot id: its record as the rerun kept it; 404 when it is not this call's, state `not_kept` when it was snapshotted before records were kept.
+   */
+  attempt?: string;
 };
 
 export type SimulateV3TestExecutionCallsParams = {
