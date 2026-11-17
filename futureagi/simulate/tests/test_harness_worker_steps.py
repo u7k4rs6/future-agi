@@ -966,7 +966,20 @@ class TestWorkerRecordAsServed:
 
     def test_work_two_levels_deep_or_in_parallel_is_beyond_the_boundary(self):
         assert not worker_steps([HOTELS])["beyond_boundary"]
-        assert worker_steps([HOTELS, FLIGHTS])["beyond_boundary"]
+        # Flights is handed off while hotels is still out: the two run side by side.
+        side_by_side = [
+            HOTELS,
+            {**FLIGHTS, "at": at(2)},
+            answer(3, "A", "three hotels"),
+        ]
+        assert worker_steps(side_by_side)["beyond_boundary"]
+        # Handed off only after hotels came back: one after the other, inside the boundary.
+        one_then_other = [
+            HOTELS,
+            answer(2, "A", "three hotels"),
+            {**FLIGHTS, "seq": 3, "at": at(5)},
+        ]
+        assert not worker_steps(one_then_other)["beyond_boundary"]
         nested = {
             **FLIGHTS,
             "at": at(2),

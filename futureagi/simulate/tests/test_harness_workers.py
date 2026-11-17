@@ -756,6 +756,8 @@ def test_a_read_that_fails_says_so_and_a_read_that_found_no_hand_off_ends_the_wa
     assert alone.status_code == 204
 
 
+# The activity wrapper closes stale database connections around the call.
+@pytest.mark.django_db
 def test_a_worker_read_out_of_retries_marks_the_call_unreadable(monkeypatch):
     from dataclasses import asdict
 
@@ -1629,9 +1631,13 @@ def test_a_voice_call_s_messages_come_from_its_transcript_when_it_has_no_chat_me
         {
             "role": "user",
             "text": "Refund order 1043",
-            "at": "2024-11-01T09:49:58.400000",
+            "at": "2024-11-01T09:49:58.400000+00:00",
         },
-        {"role": "agent", "text": "Refund issued", "at": "2024-11-01T09:50:11.200000"},
+        {
+            "role": "agent",
+            "text": "Refund issued",
+            "at": "2024-11-01T09:50:11.200000+00:00",
+        },
     ]
 
 
@@ -1892,7 +1898,7 @@ def test_a_worker_that_used_two_models_names_both():
 
 
 def test_messages_past_the_record_s_limit_are_counted_as_left_out(monkeypatch):
-    monkeypatch.setattr(harness_workers, "_MAX_TURNS", 2)
+    monkeypatch.setattr(harness_worker_timeline, "_MAX_TURNS", 2)
     turns = [
         {"role": "user", "text": f"m{n}", "at": f"2024-11-01T09:50:0{n}"}
         for n in range(5)
@@ -2244,7 +2250,7 @@ def test_a_later_read_never_replaces_a_complete_record_with_less(
     run = _create(environment, key="l")
     call = CallExecution.objects.filter(test_execution_id=run.test_execution_id).first()
 
-    def read(reader=None, project_id="p1"):
+    def read(reader=None, project_id="p1", *, second_read=True):
         with (
             patch(
                 "simulate.services.harness_workers.list_run_traces",
@@ -2252,16 +2258,19 @@ def test_a_later_read_never_replaces_a_complete_record_with_less(
             ),
             patch("simulate.services.harness_workers.get_reader", return_value=reader),
         ):
-            harness_workers.record_call_workers(str(call.id))
+            harness_workers.record_call_workers(str(call.id), second_read=second_read)
         call.refresh_from_db()
         return call.call_metadata[harness_workers.WORKERS_KEY]
 
+    read(_Reader(SPANS), second_read=False)
+    # The planned second read finds the same spans; it ends the read schedule.
     first = read(_Reader(SPANS))
     assert first["collection"] == "complete"
+    assert "next_read_at" not in first
     observed = {one["id"] for one in first["workers"] if one["observed"]}
     assert observed
 
-    # The planned second read times out: the complete record stays as it was.
+    # A read after it times out: the complete record stays as it was.
     assert read(_Reader(SPANS, fail=TimeoutError("read cap"))) == first
     # Nor does a read that finds nothing at all, or only part of the spans, take its place.
     assert read(project_id=None) == first

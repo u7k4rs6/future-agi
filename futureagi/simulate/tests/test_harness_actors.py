@@ -2587,14 +2587,36 @@ def test_a_scenario_needs_a_production_only_tool_only_when_every_path_calls_one(
     ) == ["issue_refund"]
 
 
-def test_environment_detail_lists_declared_workers():
+def _contract_workers(contract):
+    """The workers the environment detail's contract card serves, for an environment with no actors."""
     from types import SimpleNamespace
     from unittest.mock import patch
 
+    from simulate.services import harness_environment
+    from simulate.services.harness_actor_rules import actor_rules
+
+    with (
+        patch.object(harness_environment, "_catalogue_entries", return_value=[]),
+        patch.object(harness_environment, "_call_actor_list", return_value=[]),
+        patch.object(harness_environment, "_end_conditions", return_value={}),
+        patch.object(harness_environment, "_provenance", return_value={}),
+    ):
+        return harness_environment._contract_section(
+            SimpleNamespace(),
+            contract,
+            None,
+            None,
+            None,
+            call_actors=None,
+            rules=actor_rules({}),
+            cast=[],
+        )["workers"]
+
+
+def test_environment_detail_lists_declared_workers():
     from simulate.serializers.harness_environment import (
         HarnessEnvironmentWorkerSerializer,
     )
-    from simulate.services import harness_environment
 
     contract = {
         "workers": [
@@ -2609,31 +2631,9 @@ def test_environment_detail_lists_declared_workers():
             {"name": "no id, never shown"},
         ]
     }
-    with (
-        patch.object(harness_environment, "_catalogue_entries", return_value=[]),
-        patch.object(harness_environment, "_call_actor_list", return_value=[]),
-        patch.object(harness_environment, "_stage_output", return_value=None),
-        patch.object(harness_environment, "_end_conditions", return_value={}),
-        patch.object(harness_environment, "_provenance", return_value={}),
-    ):
-        section = harness_environment._contract_section(
-            SimpleNamespace(), contract, None, None, None
-        )
-    (worker,) = section["workers"]
+    (worker,) = _contract_workers(contract)
     for malformed in (None, "workers", 5, {"id": "x"}):
-        with (
-            patch.object(harness_environment, "_catalogue_entries", return_value=[]),
-            patch.object(harness_environment, "_call_actor_list", return_value=[]),
-            patch.object(harness_environment, "_stage_output", return_value=None),
-            patch.object(harness_environment, "_end_conditions", return_value={}),
-            patch.object(harness_environment, "_provenance", return_value={}),
-        ):
-            assert (
-                harness_environment._contract_section(
-                    SimpleNamespace(), {"workers": malformed}, None, None, None
-                )["workers"]
-                == []
-            )
+        assert _contract_workers({"workers": malformed}) == []
     assert HarnessEnvironmentWorkerSerializer(worker).data["allowed_tools"] == [
         "get_order",
         "list_refunds",
@@ -2656,16 +2656,7 @@ def test_a_worker_with_no_binding_and_an_allow_list_is_served_alike_to_both_card
         "tools": ["issue_refund", "get_order"],
         "allowed_tools": ["get_order"],
     }
-    with (
-        patch.object(harness_environment, "_catalogue_entries", return_value=[]),
-        patch.object(harness_environment, "_call_actor_list", return_value=[]),
-        patch.object(harness_environment, "_stage_output", return_value=None),
-        patch.object(harness_environment, "_end_conditions", return_value={}),
-        patch.object(harness_environment, "_provenance", return_value={}),
-    ):
-        (contract_card,) = harness_environment._contract_section(
-            SimpleNamespace(), {"workers": [worker]}, None, None, None
-        )["workers"]
+    (contract_card,) = _contract_workers({"workers": [worker]})
     built = SimpleNamespace(documents={"contract": {"workers": [worker]}})
     with patch.object(
         harness_environment.HarnessEnvironmentVersion, "no_workspace_objects"

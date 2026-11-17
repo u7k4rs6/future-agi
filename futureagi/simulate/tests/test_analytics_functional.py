@@ -2694,6 +2694,7 @@ class TestRunResultsV3Views:
                 "result": {"status": "shipped"},
                 "duration_ms": 309,
                 "kind": "agent_call",
+                "tool_label": "Tool call",
             },
             # A hand-off keeps who it went to, so a reader can tell it from a tool call.
             {
@@ -2701,6 +2702,7 @@ class TestRunResultsV3Views:
                 "delegated_to": "Refund worker",
                 "result": "refunded",
                 "kind": "agent_call",
+                "tool_label": "Hand-off",
             },
         ]
 
