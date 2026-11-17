@@ -23,7 +23,8 @@ describe("OpenAPI runtime contract", () => {
       });
     expect(run("42")).toMatchObject({ ok: true });
     expect(run("7902065059689103066")).toMatchObject({ ok: true });
-    expect(run("79020650596891030661")).toMatchObject({ ok: false });
+    // Past 2^63 - 1 it is still sent: the server refuses it with its own message, never a silent client gate.
+    expect(run("12345678901234567890123")).toMatchObject({ ok: true });
   });
 
   it("sends an actor check whatever id was typed, so the check itself says what is wrong with it", () => {
@@ -35,6 +36,17 @@ describe("OpenAPI runtime contract", () => {
           op: "create",
           changes: { name: "Priya Raman" },
           id: "a".repeat(70),
+        },
+      }),
+    ).toMatchObject({ ok: true });
+    // A value over a field's bound reaches the check too, which says so on that field.
+    expect(
+      validateContractedRequestConfig({
+        url: "/simulate/api/harness-environments/0050b1f4-0b65-4787-bd3f-f4ad4b61e661/actor-validation/",
+        method: "post",
+        data: {
+          op: "create",
+          changes: { name: "x".repeat(501), max_turns: 0 },
         },
       }),
     ).toMatchObject({ ok: true });

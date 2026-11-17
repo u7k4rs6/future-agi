@@ -59,6 +59,7 @@ from simulate.serializers.hosted_harness import HARNESS_FAILURE_DOMAINS
 from simulate.serializers.response.run_test import RunVersionLabelSerializer
 from simulate.serializers.run_dashboard_v3 import RunDashboardV3Serializer
 from simulate.serializers.test_execution import CallExecutionDetailSerializer
+from simulate.serializers.trial_pass import TrialPassFieldsSerializer
 from simulate.services.harness_evals import runnable_eval_config_ids
 from simulate.services.harness_versioning.read import run_version_labels
 from simulate.services.run_dashboard_v3 import GOAL_OUTCOMES
@@ -326,6 +327,11 @@ class RunExecutionSerializer(serializers.Serializer):
             " a coding agent's key."
         ),
     )
+    build_notice = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Said when the run replayed a build without its environment's actors.",
+    )
     selected_scenario_keys = serializers.ListField(
         child=serializers.CharField(), required=False, default=list
     )
@@ -452,8 +458,11 @@ class CallActorFacetValueSerializer(LabelledFacetValueSerializer):
     delivered = serializers.IntegerField(
         help_text="Calls where at least one of the actor's lines reached the agent."
     )
+    acted = serializers.IntegerField(
+        help_text="Calls where the actor said no line but took part through the world, by its actions."
+    )
     dropped = serializers.IntegerField(
-        help_text="Calls where the actor was triggered but none of its lines reached the agent."
+        help_text="Calls where the actor was due but neither spoke a line nor acted in the world."
     )
     not_triggered = serializers.IntegerField(
         help_text="Calls the actor was planned for but never triggered in."
@@ -536,7 +545,7 @@ class AnalyticsExecutionSerializer(serializers.Serializer):
     completed_at = serializers.DateTimeField(allow_null=True)
 
 
-class AnalyticsSummarySerializer(RunSummarySerializer):
+class AnalyticsSummarySerializer(RunSummarySerializer, TrialPassFieldsSerializer):
     evaluators = serializers.IntegerField()
     outcome_status = serializers.ChoiceField(
         choices=OUTCOME_STATUSES,
@@ -805,6 +814,12 @@ def _execution_payload(
         "resume": asdict(resume_state(execution)),
         "summary": summary,
         "fix_run": fix_run,
+        # Said when the run replayed a build without its environment's actors.
+        "build_notice": (
+            ((job.payload or {}).get("metadata") or {}).get("assembly") or {}
+        ).get("notice")
+        if job is not None
+        else None,
     }
 
 

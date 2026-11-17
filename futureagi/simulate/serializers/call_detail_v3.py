@@ -79,7 +79,13 @@ class CallCallActorSerializer(serializers.Serializer):
     delivery = serializers.ChoiceField(
         choices=list(get_args(CallActorDelivery)),
         required=False,
-        help_text="How far they got in the call; absent on a call stored without a summary.",
+        help_text=(
+            "How far they got in the call: delivered (spoke), acted (took part through the world, no line), dropped "
+            "(due, but neither spoke nor acted), not_triggered, not_drawn; absent on a call stored without a summary."
+        ),
+    )
+    delivery_label = serializers.CharField(
+        required=False, help_text="How far they got, in the words the call shows."
     )
 
 
@@ -445,10 +451,15 @@ class TrialStateSerializer(serializers.Serializer):
     )
     recorded = serializers.BooleanField(
         required=False,
-        help_text="False when World changes are not recorded for this agent: its tools run inside it.",
+        help_text="False when World changes are not recorded for this trial: its tools ran where the world cannot see.",
     )
     why = serializers.CharField(
         required=False, allow_blank=True, help_text="Why they were not recorded."
+    )
+    why_label = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Why they were not recorded, in the words World state shows.",
     )
     unreadable = serializers.BooleanField(
         help_text="True when what changed in the world could not be read; checks that needed it read Unmeasured.",

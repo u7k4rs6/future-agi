@@ -7,7 +7,6 @@ from simulate.models import AgentVersion
 from simulate.serializers.harness_environment import HarnessEnvironmentWorkerSerializer
 from simulate.services.agent_definition import resolve_api_key_for_version
 from simulate.services.agent_setup import agent_summary
-from simulate.services.harness_environment import version_participants
 from tracer.services.observability_switch import snapshot_as_shown
 
 logger = structlog.get_logger(__name__)
@@ -200,4 +199,7 @@ class AgentVersionDetailResponseSerializer(AgentVersionResponseSerializer):
         serializer_or_field=HarnessEnvironmentWorkerSerializer(many=True)
     )
     def get_participants(self, obj):
+        # Imported here: the environment service reaches this module back through the run results.
+        from simulate.services.harness_environment import version_participants
+
         return version_participants(obj)

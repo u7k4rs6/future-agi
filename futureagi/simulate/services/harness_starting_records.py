@@ -58,6 +58,8 @@ class SeededRow(TypedDict):
     # The row's key as text, as a rework request sends it back.
     key: str
     summary: str
+    # Another scenario of the suite already starts from this row, said beside it; null when none does.
+    note: str | None
 
 
 class ReworkRequest(TypedDict):
@@ -91,6 +93,16 @@ class StartingRecords(TypedDict):
     setup_note: str | None
     rows_unavailable: RowsUnavailable | None
     rework: ReworkRequest | None
+    # Whether another record can be asked for now, and why not when it can't.
+    can_rework: bool
+    rework_blocked_reason: str | None
+
+
+# Why another record can't be asked for while the latest request is open, by its state.
+_REWORK_OPEN = {
+    "pending": "The builder is still working on the last request.",
+    "waiting": "The builder is waiting for you to confirm its change.",
+}
 
 
 @dataclass(frozen=True)
@@ -403,7 +415,11 @@ def _record_of(
         if row is not None
         else f"{table.name} has no seeded row with {key_field} {fact.value}.",
         choices=[
-            SeededRow(key=str(one[key_field]), summary=_summary(key_field, one))
+            SeededRow(
+                key=str(one[key_field]),
+                summary=_summary(key_field, one),
+                note=None,
+            )
             for one in table.others(key_field, fact.value, CHOICES_MAX)
         ],
     )
@@ -484,13 +500,51 @@ def _with_tables(
         connection.close()
 
 
+def _taken(files: ScenarioFiles, tables: list[_Table]) -> dict[tuple[str, str], str]:
+    """The seeded rows the suite's other scenarios start from, each with the first scenario that does."""
+    own = scenario_token(
+        files.document.get("scenario_key") or files.document.get("name")
+    )
+    taken: dict[tuple[str, str], str] = {}
+    for document in suite_documents(files.suite):
+        name = document.get("scenario_key") or document.get("name")
+        if scenario_token(name) == own:
+            continue
+        for record in _records(document.get("fixture"), tables):
+            if record["status"] == "seeded":
+                taken.setdefault(
+                    (record["table"], record["key"]), str(document.get("name") or name)
+                )
+    return taken
+
+
+def _with_notes(
+    records: list[StartingRecord], taken: Mapping[tuple[str, str], str]
+) -> list[StartingRecord]:
+    """Each choice another scenario already starts from, said beside it; the builder decides whether it can be."""
+    for record in records:
+        record["choices"] = [
+            {
+                **choice,
+                "note": f"{record['table']} {choice['key']} already starts the scenario "
+                f"{taken[(record['table'], choice['key'])]}"
+                if (record["table"], choice["key"]) in taken
+                else None,
+            }
+            for choice in record["choices"]
+        ]
+    return records
+
+
 def scenario_records(
     files: ScenarioFiles,
 ) -> tuple[list[StartingRecord], RowsUnavailable | None]:
-    """The records a scenario's facts name, and why the world's rows can't be read when they can't."""
+    """The records a scenario's facts name, each choice noting another scenario that already starts from it, and why
+    the world's rows can't be read when they can't."""
     fixture = files.document.get("fixture")
     records, unavailable = _with_tables(
-        files.environment, lambda tables: _records(fixture, tables)
+        files.environment,
+        lambda tables: _with_notes(_records(fixture, tables), _taken(files, tables)),
     )
     return records or [], unavailable
 
@@ -555,10 +609,14 @@ def starting_records(job: HostedHarnessJob, scenario_key: str) -> StartingRecord
             setup_note=None,
             rows_unavailable=_UNREADABLE,
             rework=None,
+            can_rework=False,
+            rework_blocked_reason=_UNREADABLE["reason"],
         )
     records, unavailable = scenario_records(files)
     fixture = files.document.get("fixture")
     origin = fixture.get("origin") if isinstance(fixture, dict) else None
+    rework = latest_rework(job, files, records)
+    blocked = _REWORK_OPEN.get(rework["state"]) if rework is not None else None
     return StartingRecords(
         scenario_key=str(
             files.document.get("scenario_key") or files.document.get("name") or ""
@@ -567,5 +625,7 @@ def starting_records(job: HostedHarnessJob, scenario_key: str) -> StartingRecord
         records=records,
         setup_note=_SETUP_NOTE if _has_setup(files.document, files.suite) else None,
         rows_unavailable=unavailable,
-        rework=latest_rework(job, files, records),
+        rework=rework,
+        can_rework=blocked is None,
+        rework_blocked_reason=blocked,
     )

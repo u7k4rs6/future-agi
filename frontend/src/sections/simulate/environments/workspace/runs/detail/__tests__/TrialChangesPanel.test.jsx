@@ -31,6 +31,23 @@ const CHANGE = {
 };
 
 describe("TrialChangesPanel", () => {
+  it("says the server's reason when the trial's world actions were not seen, never 0 attempted", () => {
+    const why =
+      "This environment was built before world actions were recorded, so this trial's are not known. Rebuild it to see them.";
+    render(
+      <TrialChangesPanel
+        trialState={{
+          recorded: false,
+          why: "sealed_without_door",
+          why_label: why,
+        }}
+      />,
+    );
+    expect(screen.getByText(why)).toBeInTheDocument();
+    expect(screen.queryByText(/attempted/)).toBeNull();
+    cleanup();
+  });
+
   it("says a participant's reads apart from what it committed, and one that only read changed nothing", () => {
     render(
       <TrialChangesPanel
@@ -564,7 +581,9 @@ describe("TrialChangesPanel", () => {
     cleanup();
     render(
       <TrialChangesPanel
-        trialState={{ start: { state: "differs", tables: ["orders"], line: null } }}
+        trialState={{
+          start: { state: "differs", tables: ["orders"], line: null },
+        }}
       />,
     );
     expect(screen.queryByText(/Started from/)).toBeNull();
@@ -658,7 +677,9 @@ describe("TrialChangesPanel", () => {
                 action: "approvals.put",
               },
               before_decision: [],
-              after_decision: [{ action: "apply_discount", outcome: "committed" }],
+              after_decision: [
+                { action: "apply_discount", outcome: "committed" },
+              ],
               acted_before_decision: false,
               verdict: "refused",
               committed_after_refusal: true,
@@ -734,7 +755,9 @@ describe("TrialChangesPanel", () => {
         }}
       />,
     );
-    expect(screen.getByText("No record changed in this trial.")).toBeInTheDocument();
+    expect(
+      screen.getByText("No record changed in this trial."),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/could not be read/)).toBeNull();
     cleanup();
     // The unreadable flag wins over kept records.
@@ -746,7 +769,9 @@ describe("TrialChangesPanel", () => {
         }}
       />,
     );
-    expect(screen.getByText(/could not be read for this trial/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/could not be read for this trial/),
+    ).toBeInTheDocument();
     expect(screen.queryByText("No record changed in this trial.")).toBeNull();
   });
 
@@ -761,7 +786,8 @@ describe("TrialChangesPanel", () => {
       },
       {
         code: "fault_unknown_action",
-        message: "A test condition names refunds.void, which this world has no action for.",
+        message:
+          "A test condition names refunds.void, which this world has no action for.",
         action: "refunds.void",
         on_call: 1,
         mode: "unavailable",
@@ -787,7 +813,9 @@ describe("TrialChangesPanel", () => {
       },
     ];
     render(<TrialChangesPanel trialState={{ notices }} />);
-    expect(screen.getByText("Worth knowing about this trial")).toBeInTheDocument();
+    expect(
+      screen.getByText("Worth knowing about this trial"),
+    ).toBeInTheDocument();
     for (const one of notices)
       expect(screen.getByText(one.message)).toBeInTheDocument();
   });

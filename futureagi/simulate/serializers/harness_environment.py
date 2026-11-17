@@ -31,6 +31,7 @@ from simulate.serializers.requests.run_test_evals import (
     EvalConfigUpdateRequestSerializer,
 )
 from simulate.serializers.response.run_test import RunVersionLabelSerializer
+from simulate.serializers.trial_pass import TrialPassFieldsSerializer
 from simulate.services.harness_scenarios import FIELDS as SCENARIO_FILTER_FIELDS
 from simulate.types import ProofFailure, ProofState, WorkerBinding
 from tfc.utils.api_serializers import StrictInputSerializer
@@ -110,7 +111,7 @@ class RunEnvironmentRefSerializer(serializers.Serializer):
     name = serializers.CharField()
 
 
-class HarnessRunSummarySerializer(serializers.Serializer):
+class HarnessRunSummarySerializer(TrialPassFieldsSerializer):
     kind = serializers.ChoiceField(choices=(RUN_KIND_ENVIRONMENT, RUN_KIND_SIMULATE))
     test_execution_id = serializers.UUIDField()
     run_test_id = serializers.UUIDField()
