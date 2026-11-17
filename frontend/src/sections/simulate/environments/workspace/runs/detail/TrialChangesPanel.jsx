@@ -115,7 +115,6 @@ function WorldState({ trialState }) {
   const notices = allNotices.filter((one) => one !== outside);
   const { unreadable } = trialState;
   const records = !unreadable && trialState.records ? trialState.records : null;
-  const shared = trialState.shared_records || [];
   const noticeList = notices.length > 0 && (
     <Box>
       <Typography
@@ -183,7 +182,7 @@ function WorldState({ trialState }) {
       {changes.map((one) => (
         <Box key={one.who}>
           <Typography sx={{ typography: "s2", fontWeight: 600 }}>
-            {one.worker_id ? C.worker(one.name) : one.name}
+            {one.name}
           </Typography>
           <Typography sx={quiet}>{C.counts(one)}</Typography>
           {one.committed_actions?.length > 0 && (
@@ -211,52 +210,9 @@ function WorldState({ trialState }) {
           {one.no_change && !one.committed_actions?.length && (
             <Typography sx={quiet}>{C.noChange}</Typography>
           )}
-          {/* An attempted violation stays on the record: what was tried and why the world said no. */}
-          {one.refused_actions?.length > 0 && (
-            <Box data-testid="refused-attempts">
-              <Typography sx={{ ...quiet, fontWeight: 600 }}>
-                {C.refusedHeading}
-              </Typography>
-              {one.refused_actions.map((refused, index) => (
-                <Typography key={`${refused.action}-${index}`} sx={quiet}>
-                  {C.refused(refused)}
-                </Typography>
-              ))}
-            </Box>
-          )}
         </Box>
       ))}
       {records && <RecordsSection records={records} outside={outside} />}
-      {shared.length > 0 && (
-        <Box data-testid="shared-records">
-          <Typography sx={{ typography: "s2", fontWeight: 600 }}>
-            {C.sharedHeading}
-          </Typography>
-          {shared.map((record) => (
-            <Box key={record.key}>
-              <Typography sx={{ ...quiet, fontWeight: 600 }}>
-                {C.sharedRecord(record)}
-              </Typography>
-              {record.actions.map((action, index) => (
-                <Typography key={`${record.key}-${index}`} sx={quiet}>
-                  {C.sharedAction(action, action.name)}
-                </Typography>
-              ))}
-              {C.sharedRecordCut[record.truncation] && (
-                <Typography sx={quiet}>
-                  {C.sharedRecordCut[record.truncation]}
-                </Typography>
-              )}
-              <Typography sx={quiet}>
-                {C.committedWrites(record.committed_writes)}
-              </Typography>
-            </Box>
-          ))}
-          {trialState.shared_records_truncated && (
-            <Typography sx={quiet}>{C.sharedTruncated}</Typography>
-          )}
-        </Box>
-      )}
       {preRun.length > 0 && (
         <Box>
           <Typography sx={{ typography: "s2", fontWeight: 600 }}>
@@ -336,14 +292,8 @@ WorldState.propTypes = {
     duplicates: PropTypes.arrayOf(
       PropTypes.shape({ action: PropTypes.string, name: PropTypes.string }),
     ),
-    shared_records: PropTypes.arrayOf(PropTypes.object),
-    shared_records_truncated: PropTypes.bool,
     notices: PropTypes.arrayOf(
-      PropTypes.shape({
-        code: PropTypes.string,
-        message: PropTypes.string,
-        workers: PropTypes.arrayOf(PropTypes.string),
-      }),
+      PropTypes.shape({ code: PropTypes.string, message: PropTypes.string }),
     ),
   }),
 };

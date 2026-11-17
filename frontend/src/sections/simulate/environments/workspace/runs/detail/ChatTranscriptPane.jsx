@@ -16,16 +16,9 @@ import OtherPartyName from "src/components/VoiceDetailDrawerV2/OtherPartyName";
 import WorldActorAction from "src/components/VoiceDetailDrawerV2/WorldActorAction";
 import { DEFAULT_ROLE_LABELS } from "src/components/VoiceDetailDrawerV2/constants";
 import { isOtherRole } from "src/components/VoiceDetailDrawerV2/transcriptUtils";
-import { seriesColor } from "src/theme/data-colors";
 
 // `task`: a scenario's start message no person or actor sent.
-const ROLE_LABEL = {
-  agent: "Assistant",
-  customer: "Customer",
-  task: "Task",
-  tool: "Tool call",
-};
-const TOOL_SERIES = 1;
+const ROLE_LABEL = { agent: "Assistant", customer: "Customer", task: "Task" };
 
 // Voice turns carry a real `at` (seconds into the recording); chat turns don't,
 // so a made-up mm:ss there would misrepresent the transcript. Fall back to the
@@ -164,19 +157,10 @@ export default function ChatTranscriptPane({
             key={i}
             sx={{
               borderLeft: "2px solid",
-              // Each speaker keeps its own mark, so a tool call never reads as the customer.
-              borderColor: (t) =>
-                s.role === "agent"
-                  ? t.palette.text.secondary
-                  : s.role === "tool"
-                    ? seriesColor(t, TOOL_SERIES)
-                    : t.palette.text.disabled,
+              borderColor:
+                s.role === "agent" ? "text.secondary" : "text.disabled",
               bgcolor:
-                s.role === "agent"
-                  ? "action.hover"
-                  : s.role === "tool"
-                    ? "transparent"
-                    : "background.neutral",
+                s.role === "agent" ? "action.hover" : "background.neutral",
               px: 1.75,
               py: 1.25,
             }}
@@ -193,10 +177,7 @@ export default function ChatTranscriptPane({
               }}
             >
               {turnStamp(s, i)} ·{" "}
-              {/* A row of tool calls is named by the server, by what its calls recorded. */}
-              {s.role === "tool" && s.toolLabel ? (
-                s.toolLabel
-              ) : isOtherRole(s.role) ? (
+              {isOtherRole(s.role) ? (
                 <OtherPartyName party={s} color="text.subtitle" />
               ) : (
                 ROLE_LABEL[s.role] || s.role
@@ -252,7 +233,6 @@ ChatTranscriptPane.propTypes = {
       channel: PropTypes.string,
       text: PropTypes.string,
       toolCalls: PropTypes.any,
-      toolLabel: PropTypes.string,
     }),
   ).isRequired,
 };

@@ -33,7 +33,6 @@ import {
   CLOSED_GROUP_VIEW,
   neutralCheckboxSx,
   pinnedLeftSx,
-  subGoalLabel,
 } from "./traceTable.constants";
 import {
   SubTasksCell,
@@ -377,7 +376,7 @@ export default function TraceTable({
                         <Typography
                           sx={{ typography: "s3", color: "text.secondary" }}
                         >
-                          {subGoalLabel(goal)}
+                          {goal.name}
                         </Typography>
                         {goal.evidence?.length > 0 && (
                           <Typography
@@ -491,7 +490,7 @@ export default function TraceTable({
             onClick={() => onOpen(t)}
           >
             <SubTasksCell
-              subTasks={(t.subGoalResults || []).map(subGoalLabel)}
+              subTasks={(t.subGoalResults || []).map((goal) => goal.name)}
             />
           </TableCell>
         )}

@@ -599,7 +599,7 @@ export default function RunDetail({
       )}
 
       <CallDrawer
-        task={callNav.openRow ?? openCall?.task ?? null}
+        task={openCall?.task ?? null}
         executionId={backed ? executionId : null}
         agentType={stats.agentType}
         onClose={() => showCall(null)}

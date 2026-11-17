@@ -21,33 +21,6 @@ export function Meta({ label, value }) {
 }
 Meta.propTypes = { label: PropTypes.string, value: PropTypes.node };
 
-// Why the run counted this call as it did (a held trial, a skipped scenario, a stopped call), as the calls table says it.
-export function OutcomeReason({ reason }) {
-  if (!reason) return null;
-  return (
-    <Box
-      sx={{
-        mx: 2,
-        mb: 1.5,
-        p: 1.5,
-        borderRadius: "8px",
-        bgcolor: "status.warning.bg",
-      }}
-    >
-      <Typography
-        sx={{
-          typography: "s2",
-          color: "text.primary",
-          wordBreak: "break-word",
-        }}
-      >
-        {reason}
-      </Typography>
-    </Box>
-  );
-}
-OutcomeReason.propTypes = { reason: PropTypes.string };
-
 export function Cell({ label, value }) {
   return (
     <Box sx={{ p: 1.75, borderBottom: "1px solid", borderRight: "1px solid", borderColor: "divider" }}>
