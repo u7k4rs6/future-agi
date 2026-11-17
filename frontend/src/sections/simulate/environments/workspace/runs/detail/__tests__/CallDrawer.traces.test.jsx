@@ -333,7 +333,11 @@ describe("CallDrawer: Open in Traces from a Participants step", () => {
     const kept = Object.fromEntries(
       mocks.voiceTabs.map((tab) => [tab.value, Boolean(tab.keepMounted)]),
     );
-    expect(kept).toEqual({ traces: false, workers: true });
+    expect(kept).toEqual({
+      traces: false,
+      workers: true,
+      world_changes: false,
+    });
   });
 
   it("offers no Open in Traces for a trace the call does not list, on chat and voice", async () => {

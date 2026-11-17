@@ -900,7 +900,7 @@ describe("CallDrawer — the call's traces", () => {
     );
     expect(screen.getByTestId("voice-drawer")).toHaveAttribute(
       "data-left-tabs",
-      "Traces",
+      "Traces,World state",
     );
     unmount();
     render(<CallDrawer task={chatTask} agentType="text" onClose={() => {}} />);
@@ -991,12 +991,12 @@ describe("CallDrawer — the call's traces", () => {
         isPending: false,
       });
       rerender(drawer("b"));
-      expect(leftTabs()).toBe("Traces,Participants");
+      expect(leftTabs()).toBe("Traces,Participants,World state");
       expect(screen.getByTestId("workers-panel")).toHaveTextContent("b");
 
       useHasWorkers.mockReturnValue(false);
       rerender(drawer("b"));
-      expect(leftTabs()).toBe("Traces");
+      expect(leftTabs()).toBe("Traces,World state");
     });
 
     it("in voice, shows no tab for an unread record unless it was chosen", () => {
@@ -1012,7 +1012,7 @@ describe("CallDrawer — the call's traces", () => {
           onClose={() => {}}
         />,
       );
-      expect(leftTabs()).toBe("Traces");
+      expect(leftTabs()).toBe("Traces,World state");
     });
 
     it("in voice, keeps ↑/↓ for the panel instead of stepping to another call", async () => {

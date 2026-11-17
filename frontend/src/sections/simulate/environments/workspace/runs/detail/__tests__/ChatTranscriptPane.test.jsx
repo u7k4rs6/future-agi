@@ -174,7 +174,7 @@ describe("ChatTranscriptPane", () => {
 
   it("marks a tool row apart from the customer, under the label the server gives it", () => {
     render(
-      <ChatTranscriptPane
+      <Pane
         turns={[
           { role: "customer", text: "Where is my order?" },
           {
