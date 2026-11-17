@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import logging
 import re
+import uuid
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 from django.conf import settings
@@ -33,7 +34,10 @@ from simulate.services.hosted_harness_conversation import serialize_conversation
 from tfc.utils.api_errors import build_error_envelope
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from simulate.services.harness_actor_rules import ActorRecord
+    from simulate.services.harness_readiness.selection import ScenarioReadiness
     from simulate.services.scenario_faults import FaultProblem, FaultTarget
 
 logger = logging.getLogger(__name__)
@@ -2186,6 +2190,23 @@ class HostedHarnessProvider:
 
         asked = request.query_params.get("group_by")
         group_by = DEFAULT_GROUP_BY if asked is None else asked
+        flags: dict[str, ScenarioReadiness | None] | None = None
+        asked_for = getattr(request, "validated_query_data", None) or {}
+        if asked_for.get("readiness"):
+            from simulate.services.hosted_harness import HostedHarnessError
+
+            try:
+                flags = _scenario_readiness(job, asked_for)
+            except HostedHarnessError as exc:
+                # A build that failed or is still running has no versions to pair, and a pairing that cannot be
+                # read leaves its rows without readiness rather than failing the list.
+                if exc.code != "versioning_disabled":
+                    logger.warning(
+                        "scenario_list_readiness_unreadable job_id=%s code=%s",
+                        job.id,
+                        exc.code,
+                    )
+                flags = {}
         from simulate.selectors.environment_documents import contract_data
         from simulate.services.harness_actor_rules import actor_rules
         from simulate.services.harness_environment import environment_actor_side
@@ -2206,7 +2227,11 @@ class HostedHarnessProvider:
             row = scenario_row(
                 one, targets=door, fault_targets=targets, actor_cast=actor_cast
             )
-            return row if drafted is None else {**row, "draft_change": one.draft_change}
+            if drafted is not None:
+                row = {**row, "draft_change": one.draft_change}
+            if flags is not None:
+                row = {**row, "readiness": flags.get(one.scenario_key)}
+            return row
 
         rows = grouped([row_of(one) for one in page], group_by)
         response = paginator.get_paginated_response(rows)
@@ -3283,3 +3308,18 @@ class SandboxHarnessProvider:
 
 class _SandboxMappingError(RuntimeError):
     pass
+
+
+def _scenario_readiness(
+    job: HostedHarnessJob, query: Mapping[str, Any]
+) -> dict[str, ScenarioReadiness | None]:
+    """Each scenario's readiness for the pairing the validated query names (an absent
+    id is the environment's default), by scenario key."""
+    from simulate.services.harness_readiness import resolve_pairing, scenario_readiness
+
+    picks: dict[str, uuid.UUID] = {
+        name: query[name]
+        for name in ("agent_version_id", "environment_version_id", "suite_version_id")
+        if query.get(name)
+    }
+    return scenario_readiness(resolve_pairing(job, **picks))

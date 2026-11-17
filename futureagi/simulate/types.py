@@ -506,3 +506,10 @@ class CallCallActors(TypedDict, total=False):
     resolved: list[CallActor]
     summary: list[CallActorTookPart]
     events: list[CallActorEvent]
+
+
+# Where a scenario's proof stands on a pairing's environment and scenarios versions.
+ProofState = Literal["proved", "failed", "not_proved"]
+# Why a scenario's proof on these versions failed: it held on an earlier environment or scenarios version, or it
+# never held.
+ProofFailure = Literal["environment_changed", "scenarios_changed", "did_not_hold"]

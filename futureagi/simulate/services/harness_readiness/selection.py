@@ -10,10 +10,13 @@ refuses it and the check has not answered yet.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Literal, TypedDict, cast
+from datetime import UTC, datetime
+from typing import Any, Literal, TypedDict, TypeVar, cast
 from uuid import UUID
+
+import structlog
 
 from simulate.models import (
     HarnessAssembledBundle,
@@ -62,9 +65,12 @@ from simulate.services.harness_scenario_needs import (
 )
 from simulate.services.harness_versioning import validation
 from simulate.services.hosted_harness import HostedHarnessError
+from simulate.types import ProofFailure, ProofState
 
 Bucket = Literal["eligible", "blocked", "stale", "untested"]
 BUCKETS: tuple[Bucket, ...] = ("eligible", "blocked", "stale", "untested")
+logger = structlog.get_logger(__name__)
+
 LIST_LIMIT = 200
 PAGE_SIZE = 50
 DROPPED_REASON = "dropped when the pair was certified"
@@ -301,6 +307,214 @@ def selection_report(
             "requirements_recorded": placement.recorded,
         },
     }
+
+
+class LastProved(TypedDict):
+    environment_version: int | None
+    suite_version: int | None
+
+
+class ProofView(TypedDict):
+    state: ProofState
+    last_proved: LastProved | None
+    # Set only when ``state`` is ``failed``.
+    reason: ProofFailure | None
+
+
+class ScenarioReadiness(TypedDict):
+    bucket: Bucket | None
+    by: list[str]
+    # Each readiness row in ``by`` and its reason code, e.g. ``environment_changed``.
+    reasons: dict[str, str | None]
+    dropped: str | None
+    proof: ProofView
+    # Whether a run sends it: in a bucket other than blocked, and not dropped.
+    runs: bool
+
+
+def scenario_readiness(pairing: Pairing) -> dict[str, ScenarioReadiness | None]:
+    """Each scenario of the pairing's suite version, by key: its bucket and what put it
+    there, and where its proof stands. A dropped scenario has no bucket; one whose
+    readiness could not be read is None, never failing the others. One readiness
+    read for the whole suite. No writes."""
+    bundle = pair_bundle(pairing)
+    evidence = read_evidence(pairing, bundle)
+    report = readiness_report(pairing, bundle=bundle, evidence=evidence)
+    placement = _place_all(
+        pairing,
+        report["rows"],
+        keys=None,
+        trials=1,
+        bundle=bundle,
+        evidence=evidence,
+        workers=report["workers"],
+    )
+    proof = _proof_views(pairing, certified(bundle))
+    rows = {row["id"]: row for row in report["rows"]}
+
+    def placed(one: Placed) -> ScenarioReadiness:
+        return {
+            "bucket": one.bucket,
+            "by": list(one.by),
+            "reasons": {
+                name: rows[name]["reason_code"] for name in one.by if name in rows
+            },
+            "dropped": None,
+            "proof": proof(one.case.key),
+            "runs": one.bucket != "blocked",
+        }
+
+    def dropped(one: DroppedCase) -> ScenarioReadiness:
+        return {
+            "bucket": None,
+            "by": [],
+            "reasons": {},
+            "dropped": one["code"],
+            "proof": proof(one["key"]),
+            "runs": False,
+        }
+
+    found: dict[str, ScenarioReadiness | None] = {}
+    for one in placement.placed:
+        found[one.case.key] = _or_none(one.case.key, placed, one)
+    for gone in placement.dropped:
+        found[gone["key"]] = _or_none(gone["key"], dropped, gone)
+    return found
+
+
+_Case = TypeVar("_Case")
+
+
+def _or_none(
+    key: str, read: Callable[[_Case], ScenarioReadiness], case: _Case
+) -> ScenarioReadiness | None:
+    """One scenario's readiness, or None when reading it failed: the list still shows every other scenario's."""
+    try:
+        return read(case)
+    except Exception:
+        logger.exception("scenario_readiness_unreadable", scenario_key=key)
+        return None
+
+
+def _proof_views(pairing: Pairing, ready: bool) -> Callable[[str], ProofView]:
+    """Where each scenario's proof stands for this suite and environment version:
+    proved (or the pairing is certified), failed, or not proved; and, when not proved
+    here, the latest versions it was last proved on, by a proof or a certified
+    pairing. Three queries."""
+    from simulate.services.hosted_harness_gateway import _scenario_token
+
+    here: Mapping[str, Mapping[str, Any]] = {}
+    earlier: list[
+        tuple[datetime | None, Mapping[str, Mapping[str, Any]], LastProved]
+    ] = []
+    for row in (
+        HarnessSuiteValidation.no_workspace_objects.filter(
+            suite_version__job_id=pairing.environment.id
+        )
+        .select_related("suite_version", "environment_version")
+        .order_by("-proved_at")
+    ):
+        proofs = {
+            _scenario_token(key): value
+            for key, value in (row.proofs or {}).items()
+            if isinstance(value, Mapping)
+        }
+        if (
+            row.suite_version_id == pairing.suite_version.id
+            and row.environment_version_id == pairing.environment_version.id
+        ):
+            here = proofs
+        else:
+            earlier.append(
+                (
+                    row.proved_at,
+                    proofs,
+                    {
+                        "environment_version": row.environment_version.version_number,
+                        "suite_version": row.suite_version.version_number,
+                    },
+                )
+            )
+    # A certified pairing proved every scenario of its suite version, on its
+    # environment version, whichever agent version it was certified with.
+    bundles = []
+    for bundle in (
+        HarnessAssembledBundle._base_manager.filter(
+            job_id=pairing.environment.id, state=HarnessAssembledBundle.State.READY
+        )
+        .exclude(object_key="")
+        .exclude(object_key__isnull=True)
+        .select_related("environment_version", "suite_version")
+    ):
+        if (bundle.environment_version_id, bundle.suite_version_id) == (
+            pairing.environment_version.id,
+            pairing.suite_version.id,
+        ):
+            ready = True
+        else:
+            bundles.append(bundle)
+    members: dict[object, list[str]] = {}
+    for suite_id, key in HarnessSuiteMember.no_workspace_objects.filter(
+        suite_version_id__in={bundle.suite_version_id for bundle in bundles}
+    ).values_list("suite_version_id", "scenario_key"):
+        members.setdefault(suite_id, []).append(key)
+    for bundle in bundles:
+        earlier.append(
+            (
+                bundle.updated_at,
+                {
+                    _scenario_token(key): {"holds": True}
+                    for key in members.get(bundle.suite_version_id, [])
+                },
+                {
+                    "environment_version": bundle.environment_version.version_number,
+                    "suite_version": bundle.suite_version.version_number,
+                },
+            )
+        )
+    earlier.sort(
+        key=lambda one: one[0] or datetime.min.replace(tzinfo=UTC),
+        reverse=True,
+    )
+
+    failure_of = _proof_failure(pairing)
+
+    def view(key: str) -> ProofView:
+        token = _scenario_token(key)
+        mine = here.get(token)
+        if ready or (isinstance(mine, Mapping) and mine.get("holds") is True):
+            return {"state": "proved", "last_proved": None, "reason": None}
+        last = next(
+            (
+                versions
+                for _, proofs, versions in earlier
+                if (proofs.get(token) or {}).get("holds") is True
+            ),
+            None,
+        )
+        if not isinstance(mine, Mapping):
+            return {"state": "not_proved", "last_proved": last, "reason": None}
+        return {"state": "failed", "last_proved": last, "reason": failure_of(last)}
+
+    return view
+
+
+def _proof_failure(pairing: Pairing) -> Callable[[LastProved | None], ProofFailure]:
+    current = (
+        pairing.environment_version.version_number,
+        pairing.suite_version.version_number,
+    )
+
+    def failure(last: LastProved | None) -> ProofFailure:
+        if last is None:
+            return "did_not_hold"
+        if last["environment_version"] != current[0]:
+            return "environment_changed"
+        if last["suite_version"] != current[1]:
+            return "scenarios_changed"
+        return "did_not_hold"
+
+    return failure
 
 
 def _worker_reasons(

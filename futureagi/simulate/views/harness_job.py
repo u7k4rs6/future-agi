@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from simulate.selectors.held_back import coding_agent_key, coding_agent_run
 from simulate.serializers.harness_environment import (
     HarnessAgentCredentialsResponseSerializer,
+    HarnessScenarioListQuerySerializer,
     HarnessScenarioListResponseSerializer,
 )
 from simulate.serializers.harness_job import (
@@ -333,7 +334,10 @@ class HarnessJobViewSet(viewsets.ViewSet):
     def extend(self, request, pk=None):
         return get_harness_provider().extend(request, pk)
 
-    @validated_request(responses={200: HarnessScenarioListResponseSerializer})
+    @validated_request(
+        query_serializer=HarnessScenarioListQuerySerializer,
+        responses={200: HarnessScenarioListResponseSerializer},
+    )
     @action(detail=True, methods=["get"], url_path="scenarios")
     def scenarios(self, request, pk=None):
         return get_harness_provider().list_scenarios(request, pk)
