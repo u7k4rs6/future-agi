@@ -149,7 +149,7 @@ class HeldBy(TypedDict):
     count: int
     reason: str | None
     # What the run dialog shows for it, e.g. "Refund worker's limits are not held".
-    label: str
+    text: str
 
 
 class SelectionView(Scope):
@@ -566,7 +566,7 @@ def _held_by(
             "area": row["area"],
             "count": row["affected"]["count"],
             "reason": row["reason"],
-            "label": row["reason"] or row["label"],
+            "text": row["reason"] or row["label"],
         }
         for row in rows
         if row["status"] == "blocked" and row["affected"]["count"] > 0
@@ -578,7 +578,7 @@ def _held_by(
             "area": "workers",
             "count": count,
             "reason": reasons.get(key),
-            "label": f"{names.get(key, 'A worker')}'s limits are not held",
+            "text": f"{names.get(key, 'A worker')}'s limits are not held",
         }
         for key, count in sorted(by_worker.items())
     ]
