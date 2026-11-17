@@ -54453,7 +54453,455 @@
                 "operationId": "simulate_api_harness-jobs_scenarios",
                 "summary": "Provider-neutral control plane for hosted ALK harness jobs.",
                 "description": "Validates the v1.6 request contract and delegates execution to the public backend selected by\n``settings.HARNESS_PROVIDER`` (``hosted`` or ``sandbox``). The hosted backend independently\nselects its managed sandbox runtime.",
-                "parameters": [],
+                "parameters": [
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "description": "Every word must match the name, instruction, use case or branch.",
+                        "required": false,
+                        "type": "string"
+                    },
+                    {
+                        "name": "ordering",
+                        "in": "query",
+                        "description": "number, name or use_case, with a leading - for descending; the suite order otherwise.",
+                        "required": false,
+                        "type": "string"
+                    },
+                    {
+                        "name": "group_by",
+                        "in": "query",
+                        "description": "One of the response's groupings; empty for one flat list, use case when absent.",
+                        "required": false,
+                        "type": "string"
+                    },
+                    {
+                        "name": "readiness",
+                        "in": "query",
+                        "description": "Add each scenario's readiness for the pairing the version ids name.",
+                        "required": false,
+                        "type": "boolean",
+                        "default": false
+                    },
+                    {
+                        "name": "agent_version_id",
+                        "in": "query",
+                        "description": "With readiness; the environment's default when absent.",
+                        "required": false,
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    {
+                        "name": "environment_version_id",
+                        "in": "query",
+                        "description": "With readiness; the environment's default when absent.",
+                        "required": false,
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    {
+                        "name": "suite_version_id",
+                        "in": "query",
+                        "description": "With readiness; the environment's default when absent.",
+                        "required": false,
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    {
+                        "name": "name",
+                        "in": "query",
+                        "description": "Filter on Scenario.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "name_not",
+                        "in": "query",
+                        "description": "Filter on Scenario.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "use_case",
+                        "in": "query",
+                        "description": "Filter on Use case.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "use_case_not",
+                        "in": "query",
+                        "description": "Filter on Use case.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "instruction",
+                        "in": "query",
+                        "description": "Filter on Situation.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "instruction_not",
+                        "in": "query",
+                        "description": "Filter on Situation.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "persona.name",
+                        "in": "query",
+                        "description": "Filter on Name.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "persona.name_not",
+                        "in": "query",
+                        "description": "Filter on Name.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "persona.accent",
+                        "in": "query",
+                        "description": "Filter on Accent.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "persona.accent_not",
+                        "in": "query",
+                        "description": "Filter on Accent.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "persona.languages",
+                        "in": "query",
+                        "description": "Filter on Language.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "persona.languages_not",
+                        "in": "query",
+                        "description": "Filter on Language.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "persona.age_group",
+                        "in": "query",
+                        "description": "Filter on Age.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "persona.age_group_not",
+                        "in": "query",
+                        "description": "Filter on Age.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "persona.gender",
+                        "in": "query",
+                        "description": "Filter on Gender.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "persona.gender_not",
+                        "in": "query",
+                        "description": "Filter on Gender.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "persona.location",
+                        "in": "query",
+                        "description": "Filter on Location.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "persona.location_not",
+                        "in": "query",
+                        "description": "Filter on Location.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "persona.personality",
+                        "in": "query",
+                        "description": "Filter on Personality.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "persona.personality_not",
+                        "in": "query",
+                        "description": "Filter on Personality.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "persona.communication_style",
+                        "in": "query",
+                        "description": "Filter on Style.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "persona.communication_style_not",
+                        "in": "query",
+                        "description": "Filter on Style.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "background_noise",
+                        "in": "query",
+                        "description": "Filter on Background.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "background_noise_not",
+                        "in": "query",
+                        "description": "Filter on Background.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "actors",
+                        "in": "query",
+                        "description": "Filter on Actors.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "actors_not",
+                        "in": "query",
+                        "description": "Filter on Actors.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "coverage.overlay",
+                        "in": "query",
+                        "description": "Filter on Attack.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "coverage.overlay_not",
+                        "in": "query",
+                        "description": "Filter on Attack.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "coverage.overlay_intensity",
+                        "in": "query",
+                        "description": "Filter on Attack intensity.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "coverage.overlay_intensity_not",
+                        "in": "query",
+                        "description": "Filter on Attack intensity.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "coverage.task",
+                        "in": "query",
+                        "description": "Filter on Task.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "coverage.task_not",
+                        "in": "query",
+                        "description": "Filter on Task.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "sub_goals",
+                        "in": "query",
+                        "description": "Filter on Sub-goal.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "sub_goals_not",
+                        "in": "query",
+                        "description": "Filter on Sub-goal.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "keywords",
+                        "in": "query",
+                        "description": "Filter on Keywords.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "keywords_not",
+                        "in": "query",
+                        "description": "Filter on Keywords.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "description": "Filter on Status.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "status_not",
+                        "in": "query",
+                        "description": "Filter on Status.",
+                        "required": false,
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "",
@@ -54471,6 +54919,7 @@
                 "tags": [
                     "simulate"
                 ],
+                "x-runtime-request-validation": true,
                 "x-runtime-response-validation": true
             },
             "parameters": [
@@ -152547,6 +152996,120 @@
                 }
             }
         },
+        "HarnessScenarioLastProved": {
+            "description": "The latest versions it was proved on, when not proved on these.",
+            "required": [
+                "environment_version",
+                "suite_version"
+            ],
+            "type": "object",
+            "properties": {
+                "environment_version": {
+                    "title": "Environment version",
+                    "type": "integer",
+                    "x-nullable": true
+                },
+                "suite_version": {
+                    "title": "Suite version",
+                    "type": "integer",
+                    "x-nullable": true
+                }
+            },
+            "x-nullable": true
+        },
+        "HarnessScenarioProof": {
+            "required": [
+                "state",
+                "last_proved",
+                "reason"
+            ],
+            "type": "object",
+            "properties": {
+                "state": {
+                    "title": "State",
+                    "type": "string",
+                    "enum": [
+                        "proved",
+                        "failed",
+                        "not_proved"
+                    ]
+                },
+                "last_proved": {
+                    "$ref": "#/definitions/HarnessScenarioLastProved"
+                },
+                "reason": {
+                    "title": "Reason",
+                    "description": "Why its proof failed, set only when state is failed: it held on an earlier environment or scenarios version, or it never held.",
+                    "type": "string",
+                    "enum": [
+                        "environment_changed",
+                        "scenarios_changed",
+                        "did_not_hold"
+                    ],
+                    "x-nullable": true
+                }
+            }
+        },
+        "HarnessScenarioReadiness": {
+            "description": "Present when the list is asked for readiness; null when it could not be read.",
+            "required": [
+                "bucket",
+                "by",
+                "reasons",
+                "dropped",
+                "proof",
+                "runs"
+            ],
+            "type": "object",
+            "properties": {
+                "bucket": {
+                    "title": "Bucket",
+                    "description": "Null for a dropped scenario.",
+                    "type": "string",
+                    "enum": [
+                        "eligible",
+                        "blocked",
+                        "stale",
+                        "untested"
+                    ],
+                    "x-nullable": true
+                },
+                "by": {
+                    "description": "The readiness rows and workers that put it in its bucket.",
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "reasons": {
+                    "title": "Reasons",
+                    "description": "Each readiness row in by and its reason code, keyed by the row.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string",
+                        "minLength": 1,
+                        "x-nullable": true
+                    }
+                },
+                "dropped": {
+                    "title": "Dropped",
+                    "description": "Why certifying the pair dropped it, as a code.",
+                    "type": "string",
+                    "minLength": 1,
+                    "x-nullable": true
+                },
+                "proof": {
+                    "$ref": "#/definitions/HarnessScenarioProof"
+                },
+                "runs": {
+                    "title": "Runs",
+                    "description": "Whether a run sends it: not blocked and not dropped.",
+                    "type": "boolean"
+                }
+            },
+            "x-nullable": true
+        },
         "HarnessScenarioRow": {
             "required": [
                 "id",
@@ -152691,6 +153254,9 @@
                         "unchanged"
                     ],
                     "x-nullable": true
+                },
+                "readiness": {
+                    "$ref": "#/definitions/HarnessScenarioReadiness"
                 }
             }
         },

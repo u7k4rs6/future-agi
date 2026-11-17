@@ -1280,6 +1280,7 @@ import type {
   SimulateApiHarnessEnvironmentsRunPlanParams,
   SimulateApiHarnessEnvironmentsUploadFileBody,
   SimulateApiHarnessEnvironmentsVersionsVersionDiffParams,
+  SimulateApiHarnessJobsScenariosParams,
   SimulateApiHarnessJobsSecretFileUploadBody,
   SimulateApiHarnessJobsSourceUploadBody,
   SimulateApiLivekitWebhookCreateBody,
@@ -63370,8 +63371,27 @@ export type simulateApiHarnessJobsScenariosResponse =
   | simulateApiHarnessJobsScenariosResponseSuccess
   | simulateApiHarnessJobsScenariosResponseError;
 
-export const getSimulateApiHarnessJobsScenariosUrl = (id: string) => {
-  return `/simulate/api/harness-jobs/${id}/scenarios/`;
+export const getSimulateApiHarnessJobsScenariosUrl = (
+  id: string,
+  params?: SimulateApiHarnessJobsScenariosParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (Array.isArray(value)) {
+      value
+        .filter((item) => item !== undefined && item !== null)
+        .forEach((item) => normalizedParams.append(key, item.toString()));
+    } else if (value !== undefined && value !== null) {
+      normalizedParams.append(key, value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/simulate/api/harness-jobs/${id}/scenarios/?${stringifiedParams}`
+    : `/simulate/api/harness-jobs/${id}/scenarios/`;
 };
 
 /**
@@ -63382,10 +63402,11 @@ selects its managed sandbox runtime.
  */
 export const simulateApiHarnessJobsScenarios = async (
   id: string,
+  params?: SimulateApiHarnessJobsScenariosParams,
   options?: RequestInit,
 ): Promise<simulateApiHarnessJobsScenariosResponse> => {
   return apiMutator<simulateApiHarnessJobsScenariosResponse>(
-    getSimulateApiHarnessJobsScenariosUrl(id),
+    getSimulateApiHarnessJobsScenariosUrl(id, params),
     {
       ...options,
       method: "GET",

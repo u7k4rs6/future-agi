@@ -52249,6 +52249,177 @@ export const SimulateApiHarnessJobsScenariosParams = zod.object({
   id: zod.string(),
 });
 
+export const simulateApiHarnessJobsScenariosQueryReadinessDefault = false;
+
+export const SimulateApiHarnessJobsScenariosQueryParams = zod.object({
+  page: zod.number().min(1).optional(),
+  limit: zod.number().min(1).optional(),
+  search: zod
+    .string()
+    .optional()
+    .describe(
+      "Every word must match the name, instruction, use case or branch.",
+    ),
+  ordering: zod
+    .string()
+    .optional()
+    .describe(
+      "number, name or use_case, with a leading - for descending; the suite order otherwise.",
+    ),
+  group_by: zod
+    .string()
+    .optional()
+    .describe(
+      "One of the response's groupings; empty for one flat list, use case when absent.",
+    ),
+  readiness: zod
+    .boolean()
+    .default(simulateApiHarnessJobsScenariosQueryReadinessDefault)
+    .describe(
+      "Add each scenario's readiness for the pairing the version ids name.",
+    ),
+  agent_version_id: zod
+    .string()
+    .uuid()
+    .optional()
+    .describe("With readiness; the environment's default when absent."),
+  environment_version_id: zod
+    .string()
+    .uuid()
+    .optional()
+    .describe("With readiness; the environment's default when absent."),
+  suite_version_id: zod
+    .string()
+    .uuid()
+    .optional()
+    .describe("With readiness; the environment's default when absent."),
+  name: zod.array(zod.string()).optional().describe("Filter on Scenario."),
+  name_not: zod.array(zod.string()).optional().describe("Filter on Scenario."),
+  use_case: zod.array(zod.string()).optional().describe("Filter on Use case."),
+  use_case_not: zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Use case."),
+  instruction: zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Situation."),
+  instruction_not: zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Situation."),
+  "persona.name": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Name."),
+  "persona.name_not": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Name."),
+  "persona.accent": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Accent."),
+  "persona.accent_not": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Accent."),
+  "persona.languages": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Language."),
+  "persona.languages_not": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Language."),
+  "persona.age_group": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Age."),
+  "persona.age_group_not": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Age."),
+  "persona.gender": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Gender."),
+  "persona.gender_not": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Gender."),
+  "persona.location": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Location."),
+  "persona.location_not": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Location."),
+  "persona.personality": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Personality."),
+  "persona.personality_not": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Personality."),
+  "persona.communication_style": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Style."),
+  "persona.communication_style_not": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Style."),
+  background_noise: zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Background."),
+  background_noise_not: zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Background."),
+  actors: zod.array(zod.string()).optional().describe("Filter on Actors."),
+  actors_not: zod.array(zod.string()).optional().describe("Filter on Actors."),
+  "coverage.overlay": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Attack."),
+  "coverage.overlay_not": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Attack."),
+  "coverage.overlay_intensity": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Attack intensity."),
+  "coverage.overlay_intensity_not": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Attack intensity."),
+  "coverage.task": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Task."),
+  "coverage.task_not": zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Task."),
+  sub_goals: zod.array(zod.string()).optional().describe("Filter on Sub-goal."),
+  sub_goals_not: zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Sub-goal."),
+  keywords: zod.array(zod.string()).optional().describe("Filter on Keywords."),
+  keywords_not: zod
+    .array(zod.string())
+    .optional()
+    .describe("Filter on Keywords."),
+  status: zod.array(zod.string()).optional().describe("Filter on Status."),
+  status_not: zod.array(zod.string()).optional().describe("Filter on Status."),
+});
+
 export const SimulateApiHarnessJobsScenariosResponse = zod.object({
   count: zod.number(),
   next: zod.string().min(1),
@@ -52465,6 +52636,53 @@ export const SimulateApiHarnessJobsScenariosResponse = zod.object({
         .enum(["added", "changed", "unchanged"])
         .optional()
         .describe("Present while the list shows unsaved changes."),
+      readiness: zod
+        .object({
+          bucket: zod
+            .enum(["eligible", "blocked", "stale", "untested"])
+            .describe("Null for a dropped scenario."),
+          by: zod
+            .array(zod.string().min(1))
+            .describe(
+              "The readiness rows and workers that put it in its bucket.",
+            ),
+          reasons: zod
+            .record(zod.string(), zod.string().min(1))
+            .describe(
+              "Each readiness row in by and its reason code, keyed by the row.",
+            ),
+          dropped: zod
+            .string()
+            .min(1)
+            .describe("Why certifying the pair dropped it, as a code."),
+          proof: zod.object({
+            state: zod.enum(["proved", "failed", "not_proved"]),
+            last_proved: zod
+              .object({
+                environment_version: zod.number(),
+                suite_version: zod.number(),
+              })
+              .describe(
+                "The latest versions it was proved on, when not proved on these.",
+              ),
+            reason: zod
+              .enum([
+                "environment_changed",
+                "scenarios_changed",
+                "did_not_hold",
+              ])
+              .describe(
+                "Why its proof failed, set only when state is failed: it held on an earlier environment or scenarios version, or it never held.",
+              ),
+          }),
+          runs: zod
+            .boolean()
+            .describe("Whether a run sends it: not blocked and not dropped."),
+        })
+        .optional()
+        .describe(
+          "Present when the list is asked for readiness; null when it could not be read.",
+        ),
     }),
   ),
   draft: zod
